@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 6 python pisumathu.py)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(timeout 7 python pisumathu.py)"
+    ]
+  }
+}
