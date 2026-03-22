@@ -33,15 +33,36 @@ def _get_foreground_hwnd() -> Optional[int]:
 
 
 def _restore_focus(hwnd: int) -> bool:
-    """Bring hwnd back to the foreground. Returns True on success."""
+    """Bring hwnd back to the foreground without disturbing window state.
+
+    Uses AttachThreadInput so SetForegroundWindow succeeds from a background
+    thread, and never calls ShowWindow — which would minimize/restore
+    fullscreen or maximized windows.
+    """
     if not hwnd:
         return False
     try:
         import ctypes
         u32 = ctypes.windll.user32
-        # ShowWindow(SW_RESTORE=9) in case it's minimized
-        u32.ShowWindow(hwnd, 9)
+        kernel32 = ctypes.windll.kernel32
+
+        current_tid = kernel32.GetCurrentThreadId()
+        target_tid = u32.GetWindowThreadProcessId(hwnd, None)
+
+        # Allow our process to set foreground
+        u32.AllowSetForegroundWindow(hwnd)
+
+        # Attach our thread input to the target thread so focus APIs work
+        attached = False
+        if target_tid and target_tid != current_tid:
+            attached = bool(u32.AttachThreadInput(current_tid, target_tid, True))
+
+        u32.BringWindowToTop(hwnd)
         result = u32.SetForegroundWindow(hwnd)
+
+        if attached:
+            u32.AttachThreadInput(current_tid, target_tid, False)
+
         return bool(result)
     except Exception as e:
         print(f"[Typer] Focus restore failed: {e}")
