@@ -405,7 +405,7 @@ class PisumathuApp:
         self.root.title("Pisumathu")
         self.root.configure(bg=BG)
         self.root.resizable(False, False)
-        self.root.geometry("480x700")
+        self.root.geometry("480x860")
 
         self.audio        = pyaudio.PyAudio()
         self.pill_overlay = None
