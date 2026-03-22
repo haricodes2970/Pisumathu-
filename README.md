@@ -20,7 +20,20 @@ Powered by OpenAI Whisper + NVIDIA CUDA.
 
 ---
 
-## Installation
+## Download (Windows EXE)
+
+Grab the latest release from the [Releases page](../../releases/latest) — no Python needed.
+
+1. Download `Pisumathu-v2.0.2-windows.zip`
+2. Extract the folder
+3. Run `Pisumathu.exe`
+
+> **Note:** Windows may block the exe on first run.
+> Right-click `Pisumathu.exe` → **Properties** → check **Unblock** → **OK**
+
+---
+
+## Installation (from source)
 
 ### GPU Version (NVIDIA required)
 
