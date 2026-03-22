@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, ttk
 import threading
 import tempfile
 import os
@@ -17,6 +17,18 @@ CHUNK        = 1024
 FORMAT       = pyaudio.paInt16
 DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
 
+# ── Language options ─────────────────────────────────────────────────────────
+LANGUAGES = [
+    ("Auto Detect", None),
+    ("English",     "en"),
+    ("Kannada",     "kn"),
+    ("Hindi",       "hi"),
+    ("Telugu",      "te"),
+    ("Japanese",    "ja"),
+]
+LANG_DISPLAY = [name for name, _ in LANGUAGES]
+LANG_CODE    = {name: code for name, code in LANGUAGES}
+
 # ── Colours & fonts ──────────────────────────────────────────────────────────
 BG          = "#0d0f14"
 SURFACE     = "#161923"
@@ -31,18 +43,18 @@ FONT_BTN    = ("Courier New", 12, "bold")
 FONT_STATUS = ("Courier New", 9)
 
 # ── Load model once at startup ───────────────────────────────────────────────
-print(f"[whisper-flow] Loading model '{MODEL_SIZE}' on {DEVICE} …")
+print(f"[pisumathu] Loading model '{MODEL_SIZE}' on {DEVICE} …")
 model = whisper.load_model(MODEL_SIZE, device=DEVICE)
-print("[whisper-flow] Model ready.")
+print("[pisumathu] Model ready.")
 
 
-class WhisperFlowApp:
+class PisumathuApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Pisumathu")
         self.root.configure(bg=BG)
         self.root.resizable(False, False)
-        self.root.geometry("540x680")
+        self.root.geometry("540x720")
 
         self.recording   = False
         self.frames      = []
@@ -71,6 +83,45 @@ class WhisperFlowApp:
 
         tk.Label(hdr, text=f"model: {MODEL_SIZE}", font=FONT_STATUS,
                  bg=BG, fg=TEXT_DIM).pack(side="right", padx=10)
+
+        # Language selector row
+        lang_row = tk.Frame(self.root, bg=BG)
+        lang_row.pack(fill="x", padx=24, pady=(8, 0))
+
+        tk.Label(lang_row, text="lang:", font=FONT_STATUS,
+                 bg=BG, fg=TEXT_DIM).pack(side="left")
+
+        # Style the combobox to match the dark theme
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure(
+            "Dark.TCombobox",
+            fieldbackground=BG,
+            background=BG,
+            foreground=ACCENT,
+            selectbackground=ACCENT_DIM,
+            selectforeground=BG,
+            bordercolor=ACCENT_DIM,
+            arrowcolor=ACCENT,
+            padding=3,
+        )
+        style.map(
+            "Dark.TCombobox",
+            fieldbackground=[("readonly", BG)],
+            foreground=[("readonly", ACCENT)],
+        )
+
+        self.lang_var = tk.StringVar(value="Auto Detect")
+        self.lang_combo = ttk.Combobox(
+            lang_row,
+            textvariable=self.lang_var,
+            values=LANG_DISPLAY,
+            state="readonly",
+            width=14,
+            style="Dark.TCombobox",
+            font=FONT_STATUS,
+        )
+        self.lang_combo.pack(side="left", padx=(6, 0))
 
         # Divider
         tk.Frame(self.root, bg=ACCENT_DIM, height=1).pack(
@@ -195,6 +246,7 @@ class WhisperFlowApp:
         threading.Thread(target=self._transcribe, daemon=True).start()
 
     def _transcribe(self):
+        selected_lang = LANG_CODE.get(self.lang_var.get())
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         try:
             with wave.open(tmp.name, "wb") as wf:
@@ -203,9 +255,14 @@ class WhisperFlowApp:
                 wf.setframerate(SAMPLE_RATE)
                 wf.writeframes(b"".join(self.frames))
 
-            result = model.transcribe(tmp.name, fp16=(DEVICE == "cuda"))
-            text   = result["text"].strip()
-            lang   = result.get("language", "?")
+            if selected_lang is None:
+                result = model.transcribe(tmp.name, fp16=(DEVICE == "cuda"))
+            else:
+                result = model.transcribe(tmp.name, fp16=(DEVICE == "cuda"),
+                                          language=selected_lang)
+
+            text = result["text"].strip()
+            lang = result.get("language", "?")
 
             if text:
                 self.root.after(0, self._append_message, text, lang)
@@ -284,6 +341,6 @@ class WhisperFlowApp:
 # ── Entry point ──────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     root = tk.Tk()
-    app  = WhisperFlowApp(root)
+    app  = PisumathuApp(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()
