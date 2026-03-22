@@ -1,0 +1,10 @@
+# Pisumathu — CPU Version Requirements
+# Python 3.10 required
+# Uses faster-whisper with int8 quantization for speed without a GPU
+#
+# Install:
+#   pip install -r requirements-cpu.txt
+
+faster-whisper>=1.0.0
+pyaudio>=0.2.14
+pynput>=1.7.6

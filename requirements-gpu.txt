@@ -1,0 +1,12 @@
+# Pisumathu — GPU Version Requirements
+# Python 3.10 required
+#
+# Install PyTorch with CUDA first (run this manually):
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#
+# Then install the rest:
+#   pip install -r requirements-gpu.txt
+
+openai-whisper>=20231117
+pyaudio>=0.2.14
+pynput>=1.7.6
