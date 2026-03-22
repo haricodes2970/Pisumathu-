@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import scrolledtext, ttk
+from tkinter import scrolledtext
 import threading
 import tempfile
 import os
@@ -10,176 +10,103 @@ import torch
 import time
 import json
 
-# ── Config ───────────────────────────────────────────────────────────────────
-MODEL_SIZE   = "small"
-SAMPLE_RATE  = 16000
-CHANNELS     = 1
-CHUNK        = 1024
-FORMAT       = pyaudio.paInt16
-DEVICE       = "cuda" if torch.cuda.is_available() else "cpu"
-CONFIG_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+# ── Whisper config (hardcoded) ────────────────────────────────────────────────
+MODEL_SIZE  = "base"
+SAMPLE_RATE = 16000
+CHANNELS    = 1
+CHUNK       = 1024
+FORMAT      = pyaudio.paInt16
+DEVICE      = "cuda" if torch.cuda.is_available() else "cpu"
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 
-# ── Language options ──────────────────────────────────────────────────────────
-LANGUAGES = [
-    ("Auto Detect", None),
-    ("English",     "en"),
-    ("Kannada",     "kn"),
-    ("Hindi",       "hi"),
-    ("Telugu",      "te"),
-    ("Japanese",    "ja"),
-]
-LANG_DISPLAY = [name for name, _ in LANGUAGES]
-LANG_CODE    = {name: code for name, code in LANGUAGES}
-INDIC_LANGS  = {"kn", "hi", "te"}
-MODEL_SIZES  = ["tiny", "base", "small", "medium", "large"]
-
-# ── Colours & fonts ───────────────────────────────────────────────────────────
-BG          = "#0d0f14"
-SURFACE     = "#161923"
-ACCENT      = "#00e5ff"
-ACCENT_DIM  = "#007a8a"
-TEXT        = "#e8eaf0"
-TEXT_DIM    = "#5a6070"
-DANGER      = "#ff4f5e"
-WARN        = "#ffb300"
-FONT_TITLE  = ("Courier New", 13, "bold")
-FONT_CHAT   = ("Courier New", 11)
-FONT_BTN    = ("Courier New", 12, "bold")
-FONT_STATUS = ("Courier New", 9)
+# ── Theme constants ───────────────────────────────────────────────────────────
+BG      = "#0d0f14"
+SURFACE = "#161923"
+TEXT    = "#e8eaf0"
+TEXT_DIM= "#5a6070"
+DANGER  = "#ff4f5e"
+WARN    = "#ffb300"
 
 DEFAULT_RGB = (0, 229, 255)
 DIM_FACTOR  = 0.43
 
+FONT_TITLE  = ("Courier New", 13, "bold")
+FONT_CHAT   = ("Courier New", 11)
+FONT_BTN    = ("Courier New", 12, "bold")
+FONT_SMALL  = ("Courier New", 9)
+FONT_TINY   = ("Courier New", 7)
 
-def _rgb_to_hex(r, g, b):
+
+def rgb_to_hex(r, g, b):
     return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
 
 
-def _make_dim(r, g, b):
-    return _rgb_to_hex(r * DIM_FACTOR, g * DIM_FACTOR, b * DIM_FACTOR)
+def make_dim(r, g, b):
+    return rgb_to_hex(r * DIM_FACTOR, g * DIM_FACTOR, b * DIM_FACTOR)
+
+
+# ── Load Whisper model at startup ─────────────────────────────────────────────
+print(f"[pisumathu] loading '{MODEL_SIZE}' on {DEVICE} …")
+model = whisper.load_model(MODEL_SIZE, device=DEVICE)
+print("[pisumathu] model ready.")
 
 
 class PisumathuApp:
     def __init__(self, root: tk.Tk):
-        self.root          = root
+        self.root = root
         self.root.title("Pisumathu")
         self.root.configure(bg=BG)
         self.root.resizable(False, False)
-        self.root.geometry("540x870")
+        self.root.geometry("480x700")
 
-        self.recording     = False
-        self.frames        = []
-        self.audio         = pyaudio.PyAudio()
-        self.stream        = None
-        self.model         = None
-        self.model_size    = MODEL_SIZE
-        self.model_loading = False
+        # state
+        self.recording    = False
+        self.frames       = []
+        self.audio        = pyaudio.PyAudio()
+        self.stream       = None
+        self.pill_overlay = None   # set when pill is launched
+        self._pill_en     = True   # True=English False=Kannada
 
-        # ── Accent color state (live) ─────────────────────────────────────────
+        # accent color
         self._ar, self._ag, self._ab = DEFAULT_RGB
-        self._accent     = _rgb_to_hex(*DEFAULT_RGB)
-        self._accent_dim = _make_dim(*DEFAULT_RGB)
-
-        # ── Pill overlay reference (set externally when pill is open) ─────────
-        self.pill_overlay = None
-
-        # ── Pill language toggle (True = English, False = Kannada) ────────────
-        self._pill_en = True
+        self._accent     = rgb_to_hex(*DEFAULT_RGB)
+        self._accent_dim = make_dim(*DEFAULT_RGB)
 
         self._load_config()
         self._build_ui()
-        self._load_model(MODEL_SIZE)
 
-    # ── Persistence ───────────────────────────────────────────────────────────
+    # ── Config ────────────────────────────────────────────────────────────────
 
     def _load_config(self):
         if not os.path.exists(CONFIG_FILE):
             return
         try:
-            with open(CONFIG_FILE, "r") as f:
-                cfg = json.load(f)
-            rgb = cfg.get("accent_rgb", list(DEFAULT_RGB))
-            self._ar, self._ag, self._ab = int(rgb[0]), int(rgb[1]), int(rgb[2])
-            self._accent     = _rgb_to_hex(self._ar, self._ag, self._ab)
-            self._accent_dim = _make_dim(self._ar, self._ag, self._ab)
+            cfg = json.load(open(CONFIG_FILE))
+            r, g, b = cfg.get("accent_rgb", list(DEFAULT_RGB))
+            self._ar, self._ag, self._ab = int(r), int(g), int(b)
+            self._accent     = rgb_to_hex(self._ar, self._ag, self._ab)
+            self._accent_dim = make_dim(self._ar, self._ag, self._ab)
             self._pill_en    = cfg.get("pill_lang_en", True)
         except Exception:
             pass
 
     def _save_config(self):
         try:
-            cfg = {
-                "accent_rgb":   [self._ar, self._ag, self._ab],
-                "pill_lang_en": self._pill_en,
-            }
-            with open(CONFIG_FILE, "w") as f:
-                json.dump(cfg, f, indent=2)
+            json.dump({"accent_rgb": [self._ar, self._ag, self._ab],
+                       "pill_lang_en": self._pill_en},
+                      open(CONFIG_FILE, "w"), indent=2)
         except Exception:
             pass
 
-    # ── Model loading ─────────────────────────────────────────────────────────
-
-    def _load_model(self, size: str):
-        self.model_loading = True
-        self._set_btn_locked(True)
-        self._set_status(f"● LOADING {size} …", WARN)
-        self._append_system(f"Loading model '{size}' on {DEVICE} …")
-        threading.Thread(target=self._load_model_thread, args=(size,), daemon=True).start()
-
-    def _load_model_thread(self, size: str):
-        try:
-            m = whisper.load_model(size, device=DEVICE)
-            self.root.after(0, self._on_model_loaded, size, m)
-        except Exception as e:
-            self.root.after(0, self._on_model_error, str(e))
-
-    def _on_model_loaded(self, size: str, m):
-        self.model         = m
-        self.model_size    = size
-        self.model_loading = False
-        self.model_lbl.config(text=f"model: {size}")
-        self._append_system(f"Model '{size}' ready.")
-        self._set_btn_locked(False)
-        self._set_status("● READY", TEXT_DIM)
-        self._check_lang_warning()
-
-    def _on_model_error(self, err: str):
-        self.model_loading = False
-        self._append_error(f"Failed to load model: {err}")
-        self._set_btn_locked(False)
-        self._set_status("● ERROR", DANGER)
-
-    def _on_model_change(self, event=None):
-        new_size = self.model_var.get()
-        if new_size == self.model_size and self.model is not None:
-            return
-        self._load_model(new_size)
-
-    # ── UI ────────────────────────────────────────────────────────────────────
+    # ── UI build ──────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        # ttk dark style (shared by both comboboxes)
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure(
-            "Dark.TCombobox",
-            fieldbackground=BG, background=BG,
-            foreground=self._accent,
-            selectbackground=self._accent_dim,
-            selectforeground=BG,
-            bordercolor=self._accent_dim,
-            arrowcolor=self._accent, padding=3,
-        )
-        style.map("Dark.TCombobox",
-                  fieldbackground=[("readonly", BG)],
-                  foreground=[("readonly", self._accent)])
-
-        # Header
+        # ── HEADER ───────────────────────────────────────────────────────────
         hdr = tk.Frame(self.root, bg=BG)
         hdr.pack(fill="x", padx=24, pady=(20, 0))
 
-        self.hdr_title = tk.Label(hdr, text="◈ PISUMATHU", font=FONT_TITLE,
-                                  bg=BG, fg=self._accent)
+        self.hdr_title = tk.Label(hdr, text="◈ PISUMATHU",
+                                  font=FONT_TITLE, bg=BG, fg=self._accent)
         self.hdr_title.pack(side="left")
 
         self.gpu_badge = tk.Label(
@@ -192,45 +119,14 @@ class PisumathuApp:
         self.gpu_badge.pack(side="right")
 
         self.model_lbl = tk.Label(hdr, text=f"model: {MODEL_SIZE}",
-                                  font=FONT_STATUS, bg=BG, fg=TEXT_DIM)
+                                  font=FONT_SMALL, bg=BG, fg=TEXT_DIM)
         self.model_lbl.pack(side="right", padx=10)
 
-        # Controls row: lang + model selectors
-        ctrl_row = tk.Frame(self.root, bg=BG)
-        ctrl_row.pack(fill="x", padx=24, pady=(8, 0))
-
-        tk.Label(ctrl_row, text="lang:", font=FONT_STATUS,
-                 bg=BG, fg=TEXT_DIM).pack(side="left")
-
-        self.lang_var = tk.StringVar(value="Auto Detect")
-        self.lang_combo = ttk.Combobox(
-            ctrl_row, textvariable=self.lang_var, values=LANG_DISPLAY,
-            state="readonly", width=13, style="Dark.TCombobox", font=FONT_STATUS,
-        )
-        self.lang_combo.pack(side="left", padx=(6, 0))
-        self.lang_combo.bind("<<ComboboxSelected>>", self._on_lang_change)
-
-        tk.Label(ctrl_row, text="  model:", font=FONT_STATUS,
-                 bg=BG, fg=TEXT_DIM).pack(side="left")
-
-        self.model_var = tk.StringVar(value=MODEL_SIZE)
-        self.model_combo = ttk.Combobox(
-            ctrl_row, textvariable=self.model_var, values=MODEL_SIZES,
-            state="readonly", width=8, style="Dark.TCombobox", font=FONT_STATUS,
-        )
-        self.model_combo.pack(side="left", padx=(6, 0))
-        self.model_combo.bind("<<ComboboxSelected>>", self._on_model_change)
-
-        # Warning label
-        self.warn_lbl = tk.Label(self.root, text="",
-                                 font=("Courier New", 8), bg=BG, fg=WARN)
-        self.warn_lbl.pack(fill="x", padx=24)
-
-        # Divider
+        # ── DIVIDER ───────────────────────────────────────────────────────────
         self.divider = tk.Frame(self.root, bg=self._accent_dim, height=1)
-        self.divider.pack(fill="x", padx=24, pady=(6, 0))
+        self.divider.pack(fill="x", padx=24, pady=(12, 0))
 
-        # Chat box
+        # ── CHATBOX ───────────────────────────────────────────────────────────
         self.chat_frame = tk.Frame(self.root, bg=SURFACE,
                                    highlightbackground=self._accent_dim,
                                    highlightthickness=1)
@@ -243,266 +139,175 @@ class PisumathuApp:
             state="disabled", cursor="arrow"
         )
         self.chat.pack(fill="both", expand=True)
-
         self.chat.tag_config("you",     foreground=self._accent, font=("Courier New", 9, "bold"))
         self.chat.tag_config("msg",     foreground=TEXT,         font=FONT_CHAT)
         self.chat.tag_config("ts",      foreground=TEXT_DIM,     font=("Courier New", 8))
         self.chat.tag_config("whisper", foreground=TEXT_DIM,     font=("Courier New", 9, "italic"))
         self.chat.tag_config("error",   foreground=DANGER,       font=("Courier New", 9, "italic"))
+        self._append_system("Click ▶ START to launch the pill overlay.")
 
-        self._append_system("Hold the button below to talk. Release to transcribe.")
-
-        # Status bar
+        # ── STATUS ────────────────────────────────────────────────────────────
         self.status_var = tk.StringVar(value="● READY")
         self.status_lbl = tk.Label(self.root, textvariable=self.status_var,
-                                   font=FONT_STATUS, bg=BG, fg=TEXT_DIM)
-        self.status_lbl.pack(pady=(0, 6))
+                                   font=FONT_SMALL, bg=BG, fg=TEXT_DIM)
+        self.status_lbl.pack(pady=(0, 4))
 
-        # Waveform canvas
-        self.wave_canvas = tk.Canvas(self.root, bg=BG, height=40, width=492,
-                                     highlightthickness=0)
-        self.wave_canvas.pack(padx=24)
-        self._wave_bars = []
-        for i in range(30):
-            x = 8 + i * 16
-            bar = self.wave_canvas.create_rectangle(
-                x, 20, x + 8, 20, fill=self._accent_dim, outline=""
-            )
-            self._wave_bars.append(bar)
-        self._wave_anim_running = False
+        # ── RGB COLOR SECTION ─────────────────────────────────────────────────
+        self._build_rgb_section()
 
-        # ── Color section (RGB sliders + EN/KN toggle) ─────────────────────
-        self._build_color_section()
+        # ── DIVIDER ───────────────────────────────────────────────────────────
+        self.divider2 = tk.Frame(self.root, bg=self._accent_dim, height=1)
+        self.divider2.pack(fill="x", padx=24, pady=(10, 0))
 
-        # Push-to-talk button
-        self.btn = tk.Label(
-            self.root, text="⏺  HOLD TO TALK", font=FONT_BTN,
-            bg=self._accent, fg=BG, padx=0, pady=18,
-            cursor="hand2", width=30
+        # ── START / STOP BUTTON ───────────────────────────────────────────────
+        self.start_btn = tk.Label(
+            self.root, text="▶  START",
+            font=FONT_BTN, bg=self._accent, fg=BG,
+            padx=0, pady=18, cursor="hand2", width=30
         )
-        self.btn.pack(padx=24, pady=(10, 22), fill="x")
-        self.btn.bind("<ButtonPress-1>",   self._on_press)
-        self.btn.bind("<ButtonRelease-1>", self._on_release)
+        self.start_btn.pack(padx=24, pady=(12, 20), fill="x")
+        self.start_btn.bind("<Button-1>", self._on_start_stop)
 
-        self.root.bind("<KeyPress-space>",   self._on_press)
-        self.root.bind("<KeyRelease-space>", self._on_release)
-
-        tk.Label(self.root, text="or hold  SPACE",
-                 font=FONT_STATUS, bg=BG, fg=TEXT_DIM).pack(pady=(0, 12))
-
-    def _build_color_section(self):
+    def _build_rgb_section(self):
         outer = tk.Frame(self.root, bg=BG)
-        outer.pack(fill="x", padx=24, pady=(8, 0))
+        outer.pack(fill="x", padx=24, pady=(6, 0))
 
-        # Left: RGB sliders
-        sliders_frame = tk.Frame(outer, bg=BG)
-        sliders_frame.pack(side="left", fill="x", expand=True)
+        # Label
+        tk.Label(outer, text="ACCENT COLOR", font=FONT_TINY,
+                 bg=BG, fg=TEXT_DIM).pack(anchor="w", pady=(0, 6))
+
+        inner = tk.Frame(outer, bg=BG)
+        inner.pack(fill="x")
+
+        # Sliders column
+        sliders = tk.Frame(inner, bg=BG)
+        sliders.pack(side="left", fill="x", expand=True)
 
         self._r_var = tk.IntVar(value=self._ar)
         self._g_var = tk.IntVar(value=self._ag)
         self._b_var = tk.IntVar(value=self._ab)
 
-        for label, var, attr in [("R", self._r_var, "_ar"),
-                                  ("G", self._g_var, "_ag"),
-                                  ("B", self._b_var, "_ab")]:
-            row = tk.Frame(sliders_frame, bg=BG)
-            row.pack(fill="x", pady=1)
-            tk.Label(row, text=label, font=FONT_STATUS, bg=BG,
-                     fg=TEXT_DIM, width=2).pack(side="left")
+        slider_cfg = [
+            ("R", "#ff5555", self._r_var, "_ar"),
+            ("G", "#55ff88", self._g_var, "_ag"),
+            ("B", "#5599ff", self._b_var, "_ab"),
+        ]
+        for lbl, color, var, attr in slider_cfg:
+            row = tk.Frame(sliders, bg=BG)
+            row.pack(fill="x", pady=2)
+            tk.Label(row, text=lbl, font=("Courier New", 9, "bold"),
+                     bg=BG, fg=color, width=2).pack(side="left")
             sl = tk.Scale(
                 row, variable=var, from_=0, to=255,
-                orient="horizontal", length=260, showvalue=False,
-                bg=BG, fg=self._accent,
-                troughcolor=SURFACE, highlightthickness=0,
-                activebackground=self._accent, bd=0,
+                orient="horizontal", length=280, showvalue=False,
+                bg=BG, troughcolor=SURFACE,
+                highlightthickness=0, bd=0,
+                activebackground=color,
                 command=lambda _v, _a=attr, _var=var: self._on_rgb_change(_a, _var),
             )
             sl.pack(side="left", padx=(4, 0))
 
-        # Right: swatch + toggle
-        right = tk.Frame(outer, bg=BG)
-        right.pack(side="left", padx=(10, 0))
+        # Swatch circle (48x48) + EN/KN toggle
+        right = tk.Frame(inner, bg=BG)
+        right.pack(side="left", padx=(12, 0), anchor="center")
 
-        self.swatch = tk.Label(right, bg=self._accent,
-                               width=3, relief="flat", pady=6)
-        self.swatch.pack(pady=(2, 4))
+        self.swatch_canvas = tk.Canvas(right, width=48, height=48,
+                                       bg=BG, highlightthickness=0)
+        self.swatch_canvas.pack()
+        self._swatch_oval = self.swatch_canvas.create_oval(
+            2, 2, 46, 46, fill=self._accent, outline=self._accent_dim, width=2
+        )
 
-        self.hex_lbl = tk.Label(right, text=self._accent,
-                                font=("Courier New", 7), bg=BG, fg=TEXT_DIM)
-        self.hex_lbl.pack()
-
-        # EN / KN toggle button
-        self.pill_lang_btn = tk.Label(
+        self.lang_toggle = tk.Label(
             right,
             text="EN" if self._pill_en else "KN",
             font=("Courier New", 8, "bold"),
             bg=self._accent_dim, fg=TEXT,
-            padx=6, pady=3, cursor="hand2"
+            padx=8, pady=4, cursor="hand2"
         )
-        self.pill_lang_btn.pack(pady=(6, 0))
-        self.pill_lang_btn.bind("<Button-1>", self._toggle_pill_lang)
+        self.lang_toggle.pack(pady=(8, 0))
+        self.lang_toggle.bind("<Button-1>", self._toggle_pill_lang)
 
-    # ── Accent color logic ────────────────────────────────────────────────────
+    # ── RGB live update ───────────────────────────────────────────────────────
 
     def _on_rgb_change(self, attr, var):
         setattr(self, attr, var.get())
-        self._accent     = _rgb_to_hex(self._ar, self._ag, self._ab)
-        self._accent_dim = _make_dim(self._ar, self._ag, self._ab)
+        self._accent     = rgb_to_hex(self._ar, self._ag, self._ab)
+        self._accent_dim = make_dim(self._ar, self._ag, self._ab)
         self._apply_accent()
         self._save_config()
 
     def _apply_accent(self):
         ac  = self._accent
         dim = self._accent_dim
-
-        # Header title
         self.hdr_title.config(fg=ac)
-
-        # GPU badge (only when CUDA, otherwise stays TEXT_DIM)
         if DEVICE == "cuda":
             self.gpu_badge.config(bg=ac)
-
-        # Divider line
         self.divider.config(bg=dim)
-
-        # Chat box border
+        self.divider2.config(bg=dim)
         self.chat_frame.config(highlightbackground=dim)
-
-        # Chat "you" tag
         self.chat.tag_config("you", foreground=ac)
-
-        # Waveform bars (idle color)
-        for bar in self._wave_bars:
-            self.wave_canvas.itemconfig(bar, fill=dim)
-
-        # Hold-to-talk button (only when in READY state)
-        current_bg = self.btn.cget("bg")
-        if current_bg not in (DANGER, TEXT_DIM, "#5a6070"):
-            # Not recording / loading — safe to update
-            if current_bg != DANGER:
-                self.btn.config(bg=ac)
-
-        # Swatch + hex label
-        self.swatch.config(bg=ac)
-        self.hex_lbl.config(text=ac)
-
-        # Toggle button dim background
-        self.pill_lang_btn.config(bg=dim)
-
-        # Pill overlay (if open)
-        if self.pill_overlay is not None:
+        self.swatch_canvas.itemconfig(self._swatch_oval, fill=ac, outline=dim)
+        self.lang_toggle.config(bg=dim)
+        # start button only if not mid-recording
+        if self.start_btn.cget("text").startswith("▶"):
+            self.start_btn.config(bg=ac)
+        # pill overlay
+        if self.pill_overlay:
             try:
                 self.pill_overlay.update_accent(ac, dim)
             except Exception:
                 self.pill_overlay = None
 
-    # ── EN / KN toggle ────────────────────────────────────────────────────────
+    # ── EN/KN toggle ─────────────────────────────────────────────────────────
 
     def _toggle_pill_lang(self, event=None):
         self._pill_en = not self._pill_en
-        label = "EN" if self._pill_en else "KN"
-        self.pill_lang_btn.config(text=label)
-        if self.pill_overlay is not None:
+        self.lang_toggle.config(text="EN" if self._pill_en else "KN")
+        if self.pill_overlay:
             try:
-                self.pill_overlay.update_pill_lang(self._pill_en)
+                self.pill_overlay.update_lang(self._pill_en)
             except Exception:
                 self.pill_overlay = None
         self._save_config()
 
-    # ── Warning helper ────────────────────────────────────────────────────────
+    # ── START / STOP pill ─────────────────────────────────────────────────────
 
-    def _on_lang_change(self, event=None):
-        self._check_lang_warning()
-
-    def _check_lang_warning(self):
-        lang_code = LANG_CODE.get(self.lang_var.get())
-        if lang_code in INDIC_LANGS and self.model_size in ("tiny", "base"):
-            self.warn_lbl.config(
-                text=f"⚠  '{self.lang_var.get()}' needs small/medium/large for accurate results"
-            )
+    def _on_start_stop(self, event=None):
+        if self.pill_overlay is None:
+            self._launch_pill()
         else:
-            self.warn_lbl.config(text="")
+            self._stop_pill()
 
-    # ── Button lock (while model loads) ──────────────────────────────────────
+    def _launch_pill(self):
+        # Placeholder — pill overlay implemented in next step
+        self.start_btn.config(text="■  STOP", bg=DANGER)
+        self._append_system("Pill overlay started. Hold both Ctrl keys to record.")
 
-    def _set_btn_locked(self, locked: bool):
-        if locked:
-            self.btn.config(bg=TEXT_DIM, text="⏳  LOADING MODEL …", cursor="watch")
-            self.btn.unbind("<ButtonPress-1>")
-            self.btn.unbind("<ButtonRelease-1>")
-            self.root.unbind("<KeyPress-space>")
-            self.root.unbind("<KeyRelease-space>")
-        else:
-            self.btn.config(bg=self._accent, text="⏺  HOLD TO TALK", cursor="hand2")
-            self.btn.bind("<ButtonPress-1>",   self._on_press)
-            self.btn.bind("<ButtonRelease-1>", self._on_release)
-            self.root.bind("<KeyPress-space>",   self._on_press)
-            self.root.bind("<KeyRelease-space>", self._on_release)
-
-    # ── Recording ─────────────────────────────────────────────────────────────
-
-    def _on_press(self, event=None):
-        if self.recording or self.model is None:
-            return
-        self.recording = True
-        self.frames    = []
-        self.btn.config(bg=DANGER, text="⏹  RECORDING …  release to transcribe")
-        self._set_status("● RECORDING", DANGER)
-        self._start_wave_anim()
-
-        self.stream = self.audio.open(
-            format=FORMAT, channels=CHANNELS,
-            rate=SAMPLE_RATE, input=True,
-            frames_per_buffer=CHUNK
-        )
-        threading.Thread(target=self._record_loop, daemon=True).start()
-
-    def _record_loop(self):
-        while self.recording:
+    def _stop_pill(self):
+        if self.pill_overlay:
             try:
-                data = self.stream.read(CHUNK, exception_on_overflow=False)
-                self.frames.append(data)
+                self.pill_overlay.close()
             except Exception:
-                break
+                pass
+            self.pill_overlay = None
+        self.start_btn.config(text="▶  START", bg=self._accent)
+        self._append_system("Pill overlay stopped.")
 
-    def _on_release(self, event=None):
-        if not self.recording:
-            return
-        self.recording = False
-        self._stop_wave_anim()
+    # ── Transcription (called by pill overlay) ────────────────────────────────
 
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
-            self.stream = None
-
-        self.btn.config(bg=self._accent_dim, text="⏳  TRANSCRIBING …")
-        self._set_status("● TRANSCRIBING", self._accent_dim)
-
-        if len(self.frames) < 5:
-            self._reset_btn()
-            return
-
-        threading.Thread(target=self._transcribe, daemon=True).start()
-
-    def _transcribe(self):
-        selected_lang = LANG_CODE.get(self.lang_var.get())
+    def transcribe_audio(self, frames):
+        """Called from pill overlay after recording. Runs in background thread."""
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         try:
             with wave.open(tmp.name, "wb") as wf:
                 wf.setnchannels(CHANNELS)
                 wf.setsampwidth(self.audio.get_sample_size(FORMAT))
                 wf.setframerate(SAMPLE_RATE)
-                wf.writeframes(b"".join(self.frames))
-
-            kwargs = {"fp16": (DEVICE == "cuda")}
-            if selected_lang is not None:
-                kwargs["language"] = selected_lang
-
-            result = self.model.transcribe(tmp.name, **kwargs)
+                wf.writeframes(b"".join(frames))
+            result = model.transcribe(tmp.name, fp16=(DEVICE == "cuda"), language="en")
             text   = result["text"].strip()
-            lang   = result.get("language", "?")
-
+            lang   = result.get("language", "en")
             if text:
                 self.root.after(0, self._append_message, text, lang)
             else:
@@ -511,31 +316,6 @@ class PisumathuApp:
             self.root.after(0, self._append_error, str(e))
         finally:
             os.unlink(tmp.name)
-            self.root.after(0, self._reset_btn)
-
-    # ── Waveform animation ────────────────────────────────────────────────────
-
-    def _start_wave_anim(self):
-        self._wave_anim_running = True
-        self._animate_wave()
-
-    def _stop_wave_anim(self):
-        self._wave_anim_running = False
-        for bar in self._wave_bars:
-            self.wave_canvas.coords(bar, *self.wave_canvas.coords(bar)[:2],
-                                    self.wave_canvas.coords(bar)[2], 20)
-
-    def _animate_wave(self):
-        if not self._wave_anim_running:
-            return
-        import random
-        for bar in self._wave_bars:
-            x1, _, x2, _ = self.wave_canvas.coords(bar)
-            h  = random.randint(4, 32)
-            y1 = 20 - h // 2
-            y2 = 20 + h // 2
-            self.wave_canvas.coords(bar, x1, y1, x2, y2)
-        self.root.after(80, self._animate_wave)
 
     # ── Chat helpers ──────────────────────────────────────────────────────────
 
@@ -560,19 +340,12 @@ class PisumathuApp:
         self.chat.config(state="disabled")
         self.chat.see("end")
 
-    def _reset_btn(self):
-        self.btn.config(bg=self._accent, text="⏺  HOLD TO TALK")
-        self._set_status("● READY", TEXT_DIM)
-
     def _set_status(self, text: str, color: str):
         self.status_var.set(text)
         self.status_lbl.config(fg=color)
 
     def on_close(self):
-        self.recording = False
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
+        self._stop_pill()
         self.audio.terminate()
         self.root.destroy()
 
