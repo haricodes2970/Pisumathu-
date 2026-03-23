@@ -5,9 +5,9 @@ Always-on-top, borderless, transparent-background pill.
 Three states: IDLE → RECORDING → TRANSCRIBING
 
 Design spec v2.0.3:
-  IDLE        — 44×20px dark capsule, red dot left-aligned, NO glow/animation
-  RECORDING   — 34px light pill, [green dot][8 bars][timer], static accent glow
-  TRANSCRIBING— 30px light pill, spinner + "processing...", NO glow
+  IDLE        — 40×18px dark capsule, red dot left-aligned, no glow/anim
+  RECORDING   — 28px light pill, [green dot blink][8 bars][timer], no glow
+  TRANSCRIBING— 26px light pill, spinner + "processing...", no glow
 """
 
 import tkinter as tk
@@ -22,75 +22,61 @@ from config.settings import AppConfig
 # ---------------------------------------------------------------------------
 # Layout constants
 # ---------------------------------------------------------------------------
-IDLE_M  = 2     # canvas margin (px) for idle/transcribing — just clears the border
-REC_M   = 32    # canvas margin for recording — accommodates 28px outer glow
+M = 2   # canvas margin (px) on each side — just enough to clear the border
 
-# IDLE pill
-IDLE_PILL_W = 44
-IDLE_PILL_H = 20
+# IDLE
+IDLE_PILL_W = 40
+IDLE_PILL_H = 18
 
-# RECORDING pill
-REC_PILL_H  = 34
-REC_PAD_X   = 10    # left/right inner padding
-DOT_D       = 6     # dot diameter (px) — both states
-DOT_GAP     = 6     # gap between dot and bars
-BAR_COUNT   = 8
-BAR_W       = 3     # bar width (px)
-BAR_GAP     = 2.5   # bar gap (px)
-BAR_AREA_W  = BAR_COUNT * BAR_W + (BAR_COUNT - 1) * BAR_GAP  # 41.5px
-TIMER_GAP   = 6
-TIMER_W     = 40    # approximate timer text width
-REC_PILL_W  = int(REC_PAD_X + DOT_D + DOT_GAP + BAR_AREA_W + TIMER_GAP + TIMER_W + REC_PAD_X)
+# RECORDING
+REC_PILL_H = 28
+REC_PAD_X  = 8      # left/right padding inside pill
+DOT_D      = 5      # dot diameter (px)
+DOT_GAP    = 5      # gap between dot and bars
+BAR_COUNT  = 8
+BAR_W      = 2      # bar width (px)
+BAR_GAP    = 2      # bar gap (px)
+BAR_AREA_W = BAR_COUNT * BAR_W + (BAR_COUNT - 1) * BAR_GAP   # 30px
+TIMER_GAP  = 5
+TIMER_W    = 36     # approximate width of "00:00" at 8pt Courier New
+REC_PILL_W = REC_PAD_X + DOT_D + DOT_GAP + BAR_AREA_W + TIMER_GAP + TIMER_W + REC_PAD_X
 
-# Bar height ranges (per spec)
 BAR_MIN_H = [2, 3, 2, 3, 2, 3, 2, 3]
-BAR_MAX_H = [14, 11, 15, 10, 13, 12, 14, 11]
+BAR_MAX_H = [11, 8, 12, 7, 10, 9, 11, 8]
 
-# TRANSCRIBING pill
-TRANS_PILL_H = 30
-TRANS_PILL_W = 165
+# TRANSCRIBING
+TRANS_PILL_H = 26
+TRANS_PILL_W = 120
 
 # Colors
 RED_DOT_COLOR   = "#e11d48"
 GREEN_DOT_COLOR = "#22c55e"
-IDLE_BG         = "#12151e"
-IDLE_BORDER     = "#1e2230"
-LIGHT_BG        = "#f4f6f9"
+IDLE_BG         = "#111318"
+IDLE_BORDER     = "#1c1f2a"
+LIGHT_BG        = "#f2f4f7"
+LIGHT_BORDER    = "#d8dce6"
+BAR_COLOR       = "#555e77"   # fixed, no accent
+TIMER_COLOR     = "#777e90"   # fixed, no accent
 
-FONT_TIMER  = ("Courier New", 9)
-FONT_STATUS = ("Courier New", 9)
+FONT_TIMER  = ("Courier New", 8)
+FONT_STATUS = ("Courier New", 8)
 
 
 # ---------------------------------------------------------------------------
-# Color helpers
+# Color helper — blend fg over bg at alpha, returns hex
 # ---------------------------------------------------------------------------
-def _dark_shade(r: int, g: int, b: int) -> str:
-    """r*0.35, g*0.35, b*0.35"""
-    return f"#{round(r*0.35):02x}{round(g*0.35):02x}{round(b*0.35):02x}"
-
-
-def _accent(r: int, g: int, b: int) -> str:
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
 def _blend(r1, g1, b1, r2, g2, b2, alpha: float) -> str:
-    """Blend (r1,g1,b1) over (r2,g2,b2) at alpha 0–1. Returns hex."""
     nr = round(r1 * alpha + r2 * (1 - alpha))
     ng = round(g1 * alpha + g2 * (1 - alpha))
     nb = round(b1 * alpha + b2 * (1 - alpha))
-    if (nr, ng, nb) == (1, 1, 1):   # avoid chroma-key color
+    if (nr, ng, nb) == (1, 1, 1):   # avoid chroma-key #010101
         nb = 2
     return f"#{nr:02x}{ng:02x}{nb:02x}"
 
 
-def _over_black(r, g, b, alpha: float) -> str:
-    """Accent blended over black — approximates transparent glow."""
-    return _blend(r, g, b, 0, 0, 0, alpha)
-
-
-def _over_light(r, g, b, alpha: float) -> str:
-    """Accent blended over LIGHT_BG (#f4f6f9) — simulates bar opacity."""
-    return _blend(r, g, b, 0xf4, 0xf6, 0xf9, alpha)
+def _bar_color(opacity: float) -> str:
+    """#555e77 blended over #f2f4f7 at given opacity (simulates CSS opacity)."""
+    return _blend(0x55, 0x5e, 0x77, 0xf2, 0xf4, 0xf7, opacity)
 
 
 # ---------------------------------------------------------------------------
@@ -98,8 +84,8 @@ class PillOverlay(tk.Toplevel):
     """
     Floating pill overlay — purely visual, no user interaction.
 
-    Receives state via set_state / set_timer / set_audio_level / update_config.
-    Redraws at ~25 fps via after() on the main thread.
+    Updated via set_state / set_timer / set_audio_level / update_config.
+    Redraws at ~25 fps on the main thread via after().
     """
 
     def __init__(self, master: tk.Tk, config: AppConfig):
@@ -118,8 +104,8 @@ class PillOverlay(tk.Toplevel):
         self._audio_level   = 0.0
         self._bar_heights   = [float(h) for h in BAR_MIN_H]
         self._bar_opacities = [0.2] * BAR_COUNT
+        self._blink_on      = True
         self._spinner_angle = 0.0
-        self._t             = 0.0   # elapsed seconds for bar animation
 
         self._canvas = tk.Canvas(self, bg="#010101", highlightthickness=0)
         self._canvas.pack(fill="both", expand=True)
@@ -159,6 +145,9 @@ class PillOverlay(tk.Toplevel):
             state = self._state
 
             if state == AppState.RECORDING:
+                # Green dot: blink 1s step-end (on first 0.5s, off second 0.5s)
+                self._blink_on = (t % 1.0) < 0.5
+
                 level = self._audio_level
                 for i in range(BAR_COUNT):
                     mn, mx = BAR_MIN_H[i], BAR_MAX_H[i]
@@ -166,16 +155,14 @@ class PillOverlay(tk.Toplevel):
                         self._bar_heights[i]   = float(mn)
                         self._bar_opacities[i] = 0.2
                     else:
-                        # Height: min_h + level * (max_h - min_h) * |sin(t*6 + i*0.8)|
+                        # h = min + level * |sin(t*6 + i*0.8)| * (max - min)
                         variation = abs(math.sin(t * 6.0 + i * 0.8))
-                        self._bar_heights[i] = mn + level * (mx - mn) * variation
-                        # Opacity: 0.2 silent → 1.0 at full level
+                        self._bar_heights[i]   = mn + level * variation * (mx - mn)
                         self._bar_opacities[i] = min(1.0, 0.2 + level * 0.8)
 
             elif state == AppState.TRANSCRIBING:
                 self._spinner_angle = (t * 360.0) % 360.0
 
-            self._t = t
             t += 0.04
             time.sleep(0.04)
 
@@ -191,30 +178,24 @@ class PillOverlay(tk.Toplevel):
         self.after(40, self._render)   # ~25 fps
 
     def _draw(self) -> None:
-        state   = self._state
-        cfg     = self.config_ref
-        r, g, b = cfg.r, cfg.g, cfg.b
-        shade   = _dark_shade(r, g, b)
-        accent  = _accent(r, g, b)
-        c       = self._canvas
+        state = self._state
+        c     = self._canvas
         c.delete("all")
 
         # ── IDLE ──────────────────────────────────────────────────────────
         if state == AppState.IDLE:
             pw, ph = IDLE_PILL_W, IDLE_PILL_H
-            m = IDLE_M
-            cw, ch = pw + 2 * m, ph + 2 * m
-            self._resize(cw, ch, ph, m)
-            px, py = m, m
+            cw, ch = pw + 2 * M, ph + 2 * M
+            self._resize(cw, ch, ph)
+            px, py = M, M
 
-            # Pill body — no glow, no animation
             self._pill(c, px, py, px + pw, py + ph, ph // 2,
                        IDLE_BG, IDLE_BORDER, 1)
 
-            # Red dot: 6px, left-aligned (padding-left 7px from pill edge)
-            dr = 3   # radius
-            dot_x = px + 7 + dr
-            dot_y = py + ph // 2
+            # Red dot: 5px circle, padding-left 6px
+            dr = 2.5
+            dot_x = px + 6 + dr
+            dot_y = py + ph / 2
             c.create_oval(dot_x - dr, dot_y - dr,
                           dot_x + dr, dot_y + dr,
                           fill=RED_DOT_COLOR, outline="")
@@ -222,35 +203,25 @@ class PillOverlay(tk.Toplevel):
         # ── RECORDING ─────────────────────────────────────────────────────
         elif state == AppState.RECORDING:
             pw, ph = REC_PILL_W, REC_PILL_H
-            m = REC_M
-            cw, ch = pw + 2 * m, ph + 2 * m
-            self._resize(cw, ch, ph, m)
-            px, py = m, m
+            cw, ch = pw + 2 * M, ph + 2 * M
+            self._resize(cw, ch, ph)
+            px, py = M, M
 
-            # Static outer glow — accent@35% inner (12px), accent@15% outer (28px)
-            self._glow(c, px, py, pw, ph,
-                       r, g, b,
-                       inner_r=12, outer_r=28,
-                       inner_a=0x59 / 255,   # ~35%
-                       outer_a=0x26 / 255)   # ~15%
-
-            # Border: accent at 60% opacity over light bg
-            border_col = _blend(r, g, b, 0xf4, 0xf6, 0xf9, 0.6)
             self._pill(c, px, py, px + pw, py + ph, ph // 2,
-                       LIGHT_BG, border_col, 1)
+                       LIGHT_BG, LIGHT_BORDER, 1)
 
-            cy = py + ph // 2
+            cy = py + ph / 2
             cx = px + REC_PAD_X
 
-            # Green dot: 6px, static (no blink)
-            dr = 3
-            dot_x = cx + dr
-            dot_y = cy
-            c.create_oval(dot_x - dr, dot_y - dr,
-                          dot_x + dr, dot_y + dr,
-                          fill=GREEN_DOT_COLOR, outline="")
+            # Green dot: 5px, blink 1s step-end
+            if self._blink_on:
+                dr = 2.5
+                dot_x = cx + dr
+                c.create_oval(dot_x - dr, cy - dr,
+                              dot_x + dr, cy + dr,
+                              fill=GREEN_DOT_COLOR, outline="")
 
-            # Waveform bars — voice-reactive
+            # Waveform bars — voice-reactive, fixed gray color
             bx = cx + DOT_D + DOT_GAP
             for i in range(BAR_COUNT):
                 bh      = self._bar_heights[i]
@@ -258,87 +229,65 @@ class PillOverlay(tk.Toplevel):
                 bar_x   = bx + i * (BAR_W + BAR_GAP)
                 top     = cy - bh / 2
                 bot     = cy + bh / 2
-                fc      = _over_light(r, g, b, opacity)
                 c.create_rectangle(bar_x, top, bar_x + BAR_W, bot,
-                                   fill=fc, outline="")
+                                   fill=_bar_color(opacity), outline="")
 
-            # Timer: 9px Courier New, darkShade, right-aligned
+            # Timer: 8px Courier New, #777e90, right-aligned
             c.create_text(px + pw - REC_PAD_X, cy,
                           text=self._timer_text,
-                          anchor="e", font=FONT_TIMER, fill=shade)
+                          anchor="e", font=FONT_TIMER, fill=TIMER_COLOR)
 
         # ── TRANSCRIBING ──────────────────────────────────────────────────
         elif state == AppState.TRANSCRIBING:
             pw, ph = TRANS_PILL_W, TRANS_PILL_H
-            m = IDLE_M
-            cw, ch = pw + 2 * m, ph + 2 * m
-            self._resize(cw, ch, ph, m)
-            px, py = m, m
+            cw, ch = pw + 2 * M, ph + 2 * M
+            self._resize(cw, ch, ph)
+            px, py = M, M
 
-            # Pill body — no glow
             self._pill(c, px, py, px + pw, py + ph, ph // 2,
-                       LIGHT_BG, "#d0d4dc", 1)
+                       LIGHT_BG, LIGHT_BORDER, 1)
 
-            cy = py + ph // 2
-            cx = px + 12
+            cy = py + ph / 2
+            cx = px + 10
 
-            # Spinner: 9px circle, 2px arc border
-            sr = 4.5
+            # Spinner: 8px circle, 1px arc border (#ccc ring, #666 top arc)
+            sr = 4.0
             sa = self._spinner_angle
+            # Background ring
+            c.create_oval(cx, cy - sr, cx + sr * 2, cy + sr,
+                          outline="#cccccc", width=1)
+            # Rotating colored arc
             c.create_arc(cx, cy - sr, cx + sr * 2, cy + sr,
                          start=sa, extent=270,
-                         outline="#555555", width=2, style="arc")
-            cx += round(sr * 2) + 7
+                         outline="#666666", width=1, style="arc")
+            cx += round(sr * 2) + 6
 
-            # "processing..." muted text
+            # "processing..." muted
             c.create_text(cx, cy, text="processing...", anchor="w",
                           font=FONT_STATUS, fill="#888888")
 
         # ── LOADING (minimal idle pill) ────────────────────────────────────
         elif state == AppState.LOADING:
             pw, ph = IDLE_PILL_W, IDLE_PILL_H
-            m = IDLE_M
-            cw, ch = pw + 2 * m, ph + 2 * m
-            self._resize(cw, ch, ph, m)
-            px, py = m, m
+            cw, ch = pw + 2 * M, ph + 2 * M
+            self._resize(cw, ch, ph)
+            px, py = M, M
             self._pill(c, px, py, px + pw, py + ph, ph // 2,
                        IDLE_BG, IDLE_BORDER, 1)
-            c.create_text(px + pw // 2, py + ph // 2,
-                          text="…", anchor="center",
-                          font=FONT_STATUS, fill="#4b5563")
 
     # ── Drawing helpers ──────────────────────────────────────────────────────
 
-    def _resize(self, cw: int, ch: int, pill_h: int, margin: int) -> None:
-        """Resize canvas/window, positioning pill 40px above taskbar."""
+    def _resize(self, cw: int, ch: int, pill_h: int) -> None:
+        """Resize canvas/window, keeping pill 40px above taskbar, centered."""
         self._canvas.config(width=cw, height=ch)
         x = (self._screen_w - cw) // 2
-        y = self._screen_h - 40 - pill_h - margin
+        y = self._screen_h - 40 - pill_h - M
         self.geometry(f"{cw}x{ch}+{x}+{y}")
-
-    def _glow(self, c,
-              px: float, py: float, pw: float, ph: float,
-              gr: int, gg: int, gb: int,
-              inner_r: float, outer_r: float,
-              inner_a: float, outer_a: float) -> None:
-        """Draw concentric glow rings (farthest first) around the pill."""
-        NUM = 8
-        for i in range(1, NUM + 1):   # 1 = farthest, NUM = closest
-            frac  = i / NUM
-            dist  = outer_r + (inner_r - outer_r) * frac
-            alpha = outer_a + (inner_a - outer_a) * frac
-            color = _over_black(gr, gg, gb, alpha)
-            ex    = dist
-            r_r   = min(ph / 2 + ex, (pw + 2 * ex) / 2)
-            self._pill(c,
-                       px - ex, py - ex,
-                       px + pw + ex, py + ph + ex,
-                       r_r, color, "", 0)
 
     def _pill(self, c,
               x1: float, y1: float, x2: float, y2: float, r: float,
               fill: str, outline: str, width: int) -> None:
-        """Draw a fully-rounded pill shape via smooth polygon."""
+        """Draw a fully-rounded pill via smooth polygon."""
         r = min(float(r), (x2 - x1) / 2, (y2 - y1) / 2)
         pts = [
             x1 + r, y1,    x2 - r, y1,
