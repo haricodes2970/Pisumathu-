@@ -156,7 +156,7 @@ class MainWindow:
         hdr.pack(fill="x", padx=20, pady=(18, 0))
 
         self._lbl_title = tk.Label(
-            hdr, text=f"◈ PISUMATHU  v{VERSION}",
+            hdr, text=f"◈ PISUMATHU v{VERSION}",
             bg=BG, fg=self.cfg.accent_hex(),
             font=(FONT_MONO, 15, "bold"),
         )

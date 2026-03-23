@@ -11,7 +11,7 @@ from typing import Optional
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 
-VERSION = "2.0.2"
+VERSION = "2.0.3"
 
 DEFAULT_CONFIG = {
     "r": 0,
