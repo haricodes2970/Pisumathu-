@@ -4,7 +4,7 @@
 
 A fully offline, push-to-talk speech-to-text overlay for Windows.  
 Powered by OpenAI Whisper + NVIDIA CUDA.
-
+just push
 ---
 
 ## Features
