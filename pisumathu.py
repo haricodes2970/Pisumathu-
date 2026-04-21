@@ -45,6 +45,7 @@ class PisumathuApp:
             on_auto_type_change=self._on_auto_type_change,
             on_startup_change=self._on_startup_change,
             on_start_in_tray_change=self._on_start_in_tray_change,
+            on_model_change=self._on_model_change,
         )
         self._pill: Optional[PillOverlay] = None
         self._tray = TrayManager(
@@ -146,6 +147,13 @@ class PisumathuApp:
 
     def _on_auto_type_change(self, enabled: bool) -> None:
         self._ctrl.set_auto_type(enabled)
+
+    def _on_model_change(self, model_size: str) -> None:
+        ok = self._ctrl.set_model_size(model_size)
+        if ok:
+            self._main_win.set_status(f"Using Whisper model: {model_size}")
+        else:
+            self._main_win.set_status("Model switch failed. Kept previous model.")
 
     # ------------------------------------------------------------------
     # Shutdown

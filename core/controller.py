@@ -66,6 +66,7 @@ class AppController:
         self._right_ctrl = False
         self._hotkey_active = False
         self._hk_listener = None
+        self._reload_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -240,6 +241,49 @@ class AppController:
         self._typer.set_enabled(enabled)
         self.config.auto_type = enabled
         self.cfg_mgr.save(self.config)
+
+    def set_model_size(self, model_size: str) -> bool:
+        """Switch Whisper model (e.g. base -> medium) and reload engine."""
+        with self._reload_lock:
+            with self._state_lock:
+                if self._state in (AppState.RECORDING, AppState.TRANSCRIBING):
+                    self._on_status("Cannot change model while recording/transcribing.")
+                    return False
+
+            if model_size == self.config.model_size:
+                self._on_status(f"Model already set to '{model_size}'.")
+                return True
+
+            self._stop_hotkey_listener()
+            self._set_state(AppState.LOADING)
+            self._on_status(f"Switching model to '{model_size}'...")
+
+            old_engine = self._engine
+            old_model = self.config.model_size
+
+            new_engine = TranscriptionEngine(
+                model_size=model_size,
+                device=self.config.device,
+                language=self.config.language,
+            )
+
+            ok = new_engine.load(on_progress=self._on_status)
+            if ok:
+                self._engine = new_engine
+                self.config.model_size = model_size
+                self.cfg_mgr.save(self.config)
+                self._set_state(AppState.IDLE)
+                self._start_hotkey_listener()
+                self._on_status(f"Model switched to '{model_size}'.")
+                return True
+
+            # Revert to previous model if reload fails.
+            self._engine = old_engine
+            self.config.model_size = old_model
+            self._set_state(AppState.IDLE)
+            self._start_hotkey_listener()
+            self._on_status(f"Failed to switch model. Still using '{old_model}'.")
+            return False
 
     @property
     def auto_type_enabled(self) -> bool:

@@ -17,6 +17,8 @@ from typing import Optional, Callable
 from core.controller import AppState
 from config.settings import AppConfig, VERSION
 
+MODEL_OPTIONS = ["base", "small", "medium"]
+
 
 # ---------------------------------------------------------------------------
 # Theme palette
@@ -112,6 +114,7 @@ class MainWindow:
         on_auto_type_change: Callable[[bool], None] = None,
         on_startup_change: Callable[[bool], None] = None,
         on_start_in_tray_change: Callable[[bool], None] = None,
+        on_model_change: Callable[[str], None] = None,
     ):
         self.root = root
         self.cfg = config
@@ -122,6 +125,7 @@ class MainWindow:
         self._on_auto_type_change = on_auto_type_change or (lambda _: None)
         self._on_startup_change = on_startup_change or (lambda _: None)
         self._on_start_in_tray_change = on_start_in_tray_change or (lambda _: None)
+        self._on_model_change = on_model_change or (lambda _: None)
 
         self._pill_running = False
         self._status_text = "Loading model…"
@@ -170,7 +174,7 @@ class MainWindow:
         badge_frame.pack(side="right", anchor="e")
 
         self._lbl_model = tk.Label(
-            badge_frame, text="model: base",
+            badge_frame, text=f"model: {self.cfg.model_size}",
             bg=BG, fg=TEXT_DIM,
             font=(FONT_MONO, 8),
         )
@@ -354,6 +358,39 @@ class MainWindow:
         # Show/hide hint based on toggle state
         self._update_type_hint()
 
+        # -- Whisper model ---------------------------------------------------
+        model_frame = tk.Frame(root, bg=BG)
+        model_frame.pack(fill="x", padx=20, pady=(10, 0))
+
+        tk.Label(model_frame, text="MODEL",
+                 bg=BG, fg=TEXT_MUTED,
+                 font=(FONT_MONO, 7, "bold")).pack(side="left")
+
+        self._model_var = tk.StringVar(value=getattr(self.cfg, "model_size", "base"))
+        if self._model_var.get() not in MODEL_OPTIONS:
+            self._model_var.set("base")
+
+        self._cmb_model = ttk.Combobox(
+            model_frame,
+            textvariable=self._model_var,
+            values=MODEL_OPTIONS,
+            state="readonly",
+            width=10,
+            font=(FONT_MONO, 9),
+        )
+        self._cmb_model.pack(side="right")
+        self._cmb_model.bind("<<ComboboxSelected>>", self._on_model_select)
+
+        self._lbl_model_hint = tk.Label(
+            root,
+            text="Changing model reloads Whisper (first switch may take time)",
+            bg=BG, fg=TEXT_DIM,
+            font=(FONT_MONO, 7),
+            anchor="w",
+            wraplength=380,
+        )
+        self._lbl_model_hint.pack(fill="x", padx=22, pady=(2, 0))
+
         # -- Startup behavior -------------------------------------------------
         startup_frame = tk.Frame(root, bg=BG)
         startup_frame.pack(fill="x", padx=20, pady=(10, 0))
@@ -454,6 +491,7 @@ class MainWindow:
         self._lbl_gpu.configure(text=device)
 
     def set_model_ready(self, device: str) -> None:
+        self._lbl_model.configure(text=f"model: {self._model_var.get()}")
         self._lbl_gpu.configure(
             text=device,
             bg="#1a2a1a" if device == "CUDA" else BG3,
@@ -499,6 +537,12 @@ class MainWindow:
 
     def _on_start_in_tray_toggle(self) -> None:
         self._on_start_in_tray_change(self._start_in_tray_var.get())
+
+    def _on_model_select(self, _event=None) -> None:
+        model = self._model_var.get()
+        self.cfg.model_size = model
+        self._lbl_model.configure(text=f"model: {model}")
+        self._on_model_change(model)
 
     def _update_type_hint(self) -> None:
         if self._auto_type_var.get():
