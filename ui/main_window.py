@@ -110,6 +110,8 @@ class MainWindow:
         on_color_change: Callable[[int, int, int], None],
         on_language_change: Callable[[str], None],
         on_auto_type_change: Callable[[bool], None] = None,
+        on_startup_change: Callable[[bool], None] = None,
+        on_start_in_tray_change: Callable[[bool], None] = None,
     ):
         self.root = root
         self.cfg = config
@@ -118,6 +120,8 @@ class MainWindow:
         self._on_color_change = on_color_change
         self._on_language_change = on_language_change
         self._on_auto_type_change = on_auto_type_change or (lambda _: None)
+        self._on_startup_change = on_startup_change or (lambda _: None)
+        self._on_start_in_tray_change = on_start_in_tray_change or (lambda _: None)
 
         self._pill_running = False
         self._status_text = "Loading model…"
@@ -350,6 +354,54 @@ class MainWindow:
         # Show/hide hint based on toggle state
         self._update_type_hint()
 
+        # -- Startup behavior -------------------------------------------------
+        startup_frame = tk.Frame(root, bg=BG)
+        startup_frame.pack(fill="x", padx=20, pady=(10, 0))
+
+        tk.Label(startup_frame, text="STARTUP",
+                 bg=BG, fg=TEXT_MUTED,
+                 font=(FONT_MONO, 7, "bold")).pack(side="left")
+
+        self._start_with_windows_var = tk.BooleanVar(
+            value=getattr(self.cfg, "start_with_windows", False)
+        )
+        self._start_in_tray_var = tk.BooleanVar(
+            value=getattr(self.cfg, "start_in_tray", False)
+        )
+
+        self._btn_startup = tk.Checkbutton(
+            startup_frame,
+            text="START WITH WINDOWS",
+            variable=self._start_with_windows_var,
+            bg=BG, fg=TEXT_PRIMARY,
+            selectcolor=BG3,
+            activebackground=BG,
+            font=(FONT_MONO, 8, "bold"),
+            relief="flat",
+            padx=10, pady=4,
+            bd=1,
+            cursor="hand2",
+            command=self._on_startup_toggle,
+        )
+        self._btn_startup.pack(side="right")
+
+        self._btn_tray_start = tk.Checkbutton(
+            root,
+            text="MINIMIZE TO TRAY ON LAUNCH",
+            variable=self._start_in_tray_var,
+            bg=BG, fg=TEXT_PRIMARY,
+            selectcolor=BG3,
+            activebackground=BG,
+            font=(FONT_MONO, 8, "bold"),
+            relief="flat",
+            padx=20, pady=2,
+            bd=1,
+            cursor="hand2",
+            command=self._on_start_in_tray_toggle,
+            anchor="w",
+        )
+        self._btn_tray_start.pack(fill="x", padx=20, pady=(2, 0))
+
         # ── Start/Stop button ─────────────────────────────────────────────
         self._btn = tk.Button(
             root,
@@ -441,6 +493,12 @@ class MainWindow:
         enabled = self._auto_type_var.get()
         self._on_auto_type_change(enabled)
         self._update_type_hint()
+
+    def _on_startup_toggle(self) -> None:
+        self._on_startup_change(self._start_with_windows_var.get())
+
+    def _on_start_in_tray_toggle(self) -> None:
+        self._on_start_in_tray_change(self._start_in_tray_var.get())
 
     def _update_type_hint(self) -> None:
         if self._auto_type_var.get():

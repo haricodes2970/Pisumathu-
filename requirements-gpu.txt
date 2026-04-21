@@ -10,3 +10,5 @@
 openai-whisper>=20231117
 pyaudio>=0.2.14
 pynput>=1.7.6
+pystray>=0.19.5
+Pillow>=10.0.0

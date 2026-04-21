@@ -17,6 +17,8 @@ just push
 - 🎨 **RGB accent color** — customize to any color with live preview
 - 📋 **Chatbox history** — timestamped transcript log
 - 💾 **Persistent settings** — color + language saved to `config.json`
+- 🧩 **System tray mode** — close to tray, reopen from notification area
+- 🚀 **Windows startup option** — optional auto-launch at sign-in
 
 ---
 
@@ -65,6 +67,33 @@ python pisumathu.py
 
 ---
 
+## Private Windows App Deployment (for personal use)
+
+Build an EXE on your machine and use it locally without publishing.
+
+```bash
+# from project root
+whisper-env\Scripts\activate
+pip install -r requirements-gpu.txt
+pyinstaller --clean --noconfirm pisumathu.spec
+```
+
+Output app folder:
+
+```bash
+dist\Pisumathu\
+```
+
+Run this file:
+
+```bash
+dist\Pisumathu\Pisumathu.exe
+```
+
+If Windows SmartScreen appears, click `More info` -> `Run anyway` for unsigned local builds.
+
+---
+
 ## Usage
 
 1. Launch `python pisumathu.py`
@@ -72,6 +101,14 @@ python pisumathu.py
 3. **Hold both Ctrl keys** to start recording
 4. **Release** to transcribe
 5. Text appears in the chatbox with a timestamp
+
+Tray/startup behavior:
+
+1. Closing the window minimizes Pisumathu to the system tray
+2. Right-click tray icon -> `Open Pisumathu` to reopen
+3. Right-click tray icon -> `Quit` to fully exit
+4. Enable `START WITH WINDOWS` in app UI to auto-run at login
+5. Enable `MINIMIZE TO TRAY ON LAUNCH` in app UI to start hidden in tray
 
 ---
 

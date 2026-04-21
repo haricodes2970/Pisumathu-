@@ -21,6 +21,8 @@ DEFAULT_CONFIG = {
     "model_size": "base",
     "device": "cuda",
     "auto_type": True,
+    "start_with_windows": False,
+    "start_in_tray": False,
 }
 
 
@@ -33,6 +35,8 @@ class AppConfig:
     model_size: str = "base"
     device: str = "cuda"
     auto_type: bool = True
+    start_with_windows: bool = False
+    start_in_tray: bool = False
 
     def accent_hex(self) -> str:
         return f"#{self.r:02x}{self.g:02x}{self.b:02x}"
@@ -73,6 +77,8 @@ class ConfigManager:
                     model_size=str(merged.get("model_size", "base")),
                     device=str(merged.get("device", "cuda")),
                     auto_type=bool(merged.get("auto_type", True)),
+                    start_with_windows=bool(merged.get("start_with_windows", False)),
+                    start_in_tray=bool(merged.get("start_in_tray", False)),
                 )
                 return self._config
             except (json.JSONDecodeError, KeyError, ValueError):
