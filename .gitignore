@@ -22,6 +22,7 @@ config.json
 
 # PyInstaller output
 *.spec
+!pisumathu.spec
 dist/
 build/
 
