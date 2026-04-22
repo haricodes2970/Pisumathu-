@@ -142,14 +142,15 @@ class MainWindow:
         self.root.title("Pisumathu")
         self.root.configure(bg=BG)
         self.root.resizable(False, False)
-        self.root.geometry("420x680")
+        self.root.minsize(420, 720)
+        self.root.geometry("420x720")
         # Center on screen
         self.root.update_idletasks()
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
         x = (sw - 420) // 2
-        y = (sh - 680) // 2
-        self.root.geometry(f"420x680+{x}+{y}")
+        y = max(20, (sh - 720) // 2)
+        self.root.geometry(f"420x720+{x}+{y}")
 
     # ------------------------------------------------------------------
     # UI construction
@@ -160,8 +161,8 @@ class MainWindow:
         pad = dict(padx=20, pady=0)
 
         # ── Header ──────────────────────────────────────────────────────
-        hdr = tk.Frame(root, bg=BG, height=56)
-        hdr.pack(fill="x", padx=20, pady=(18, 0))
+        hdr = tk.Frame(root, bg=BG, height=48)
+        hdr.pack(fill="x", padx=20, pady=(14, 0))
 
         self._lbl_title = tk.Label(
             hdr, text=f"◈ PISUMATHU v{VERSION}",
@@ -190,11 +191,11 @@ class MainWindow:
 
         # ── Divider ──────────────────────────────────────────────────────
         self._divider = tk.Frame(root, bg=BORDER_DIM, height=1)
-        self._divider.pack(fill="x", padx=20, pady=(10, 0))
+        self._divider.pack(fill="x", padx=20, pady=(6, 0))
 
         # ── Chatbox ───────────────────────────────────────────────────────
         chat_outer = tk.Frame(root, bg=BG3, bd=1, relief="flat")
-        chat_outer.pack(fill="both", expand=True, padx=20, pady=(14, 0))
+        chat_outer.pack(fill="both", expand=True, padx=20, pady=(10, 0))
         self._chat_border = chat_outer
 
         self._chat = tk.Text(
@@ -207,7 +208,7 @@ class MainWindow:
             state="disabled",
             selectbackground="#2d3447",
             insertbackground=TEXT_PRIMARY,
-            height=12,
+            height=9,
             spacing3=3,
         )
         self._chat.pack(side="left", fill="both", expand=True)
@@ -230,15 +231,15 @@ class MainWindow:
             font=(FONT_MONO, 8),
             anchor="w",
         )
-        self._lbl_status.pack(fill="x", padx=22, pady=(4, 0))
+        self._lbl_status.pack(fill="x", padx=22, pady=(1, 0))
 
         # ── Divider ──────────────────────────────────────────────────────
         self._divider2 = tk.Frame(root, bg=BORDER_DIM, height=1)
-        self._divider2.pack(fill="x", padx=20, pady=(10, 0))
+        self._divider2.pack(fill="x", padx=20, pady=(6, 0))
 
         # ── Accent color section ──────────────────────────────────────────
         color_outer = tk.Frame(root, bg=BG)
-        color_outer.pack(fill="x", padx=20, pady=(12, 0))
+        color_outer.pack(fill="x", padx=20, pady=(8, 0))
 
         tk.Label(color_outer, text="ACCENT COLOR",
                  bg=BG, fg=TEXT_MUTED,
@@ -255,7 +256,7 @@ class MainWindow:
 
         # Inner padding via a child frame (14px top/bottom, 18px left/right)
         rgb_inner = tk.Frame(rgb_box, bg="#161923")
-        rgb_inner.pack(fill="x", padx=18, pady=14)
+        rgb_inner.pack(fill="x", padx=18, pady=10)
 
         slider_area = tk.Frame(rgb_inner, bg="#161923")
         slider_area.pack(side="left", fill="x", expand=True)
@@ -271,7 +272,7 @@ class MainWindow:
         ]
         for lbl, var, end_clr in channels:
             row = tk.Frame(slider_area, bg="#161923")
-            row.pack(fill="x", pady=4)
+            row.pack(fill="x", pady=1)
             tk.Label(row, text=lbl, bg="#161923", fg=end_clr,
                      font=(FONT_MONO, 9, "bold"), width=2).pack(side="left")
             s = GradientSlider(
@@ -296,7 +297,7 @@ class MainWindow:
 
         # ── Language toggle ───────────────────────────────────────────────
         lang_frame = tk.Frame(root, bg=BG)
-        lang_frame.pack(fill="x", padx=20, pady=(12, 0))
+        lang_frame.pack(fill="x", padx=20, pady=(8, 0))
 
         tk.Label(lang_frame, text="LANGUAGE",
                  bg=BG, fg=TEXT_MUTED,
@@ -313,7 +314,7 @@ class MainWindow:
                 font=(FONT_MONO, 9, "bold"),
                 relief="flat",
                 indicatoron=False,
-                padx=10, pady=4,
+                padx=10, pady=3,
                 command=self._on_lang_change,
                 bd=1,
             )
@@ -322,7 +323,7 @@ class MainWindow:
 
         # ── Type-to-cursor toggle ─────────────────────────────────────────
         type_frame = tk.Frame(root, bg=BG)
-        type_frame.pack(fill="x", padx=20, pady=(10, 0))
+        type_frame.pack(fill="x", padx=20, pady=(6, 0))
 
         tk.Label(type_frame, text="OUTPUT",
                  bg=BG, fg=TEXT_MUTED,
@@ -339,7 +340,7 @@ class MainWindow:
             activebackground=BG,
             font=(FONT_MONO, 9, "bold"),
             relief="flat",
-            padx=10, pady=4,
+                padx=10, pady=2,
             bd=1,
             cursor="hand2",
             command=self._on_auto_type_toggle,
@@ -354,13 +355,13 @@ class MainWindow:
             anchor="w",
             wraplength=380,
         )
-        self._lbl_type_hint.pack(fill="x", padx=22, pady=(2, 0))
+        self._lbl_type_hint.pack(fill="x", padx=22, pady=(0, 0))
         # Show/hide hint based on toggle state
         self._update_type_hint()
 
         # -- Whisper model ---------------------------------------------------
         model_frame = tk.Frame(root, bg=BG)
-        model_frame.pack(fill="x", padx=20, pady=(10, 0))
+        model_frame.pack(fill="x", padx=20, pady=(6, 0))
 
         tk.Label(model_frame, text="MODEL",
                  bg=BG, fg=TEXT_MUTED,
@@ -389,11 +390,11 @@ class MainWindow:
             anchor="w",
             wraplength=380,
         )
-        self._lbl_model_hint.pack(fill="x", padx=22, pady=(2, 0))
+        self._lbl_model_hint.pack(fill="x", padx=22, pady=(0, 0))
 
         # -- Startup behavior -------------------------------------------------
         startup_frame = tk.Frame(root, bg=BG)
-        startup_frame.pack(fill="x", padx=20, pady=(10, 0))
+        startup_frame.pack(fill="x", padx=20, pady=(6, 0))
 
         tk.Label(startup_frame, text="STARTUP",
                  bg=BG, fg=TEXT_MUTED,
@@ -415,7 +416,7 @@ class MainWindow:
             activebackground=BG,
             font=(FONT_MONO, 8, "bold"),
             relief="flat",
-            padx=10, pady=4,
+            padx=10, pady=2,
             bd=1,
             cursor="hand2",
             command=self._on_startup_toggle,
@@ -431,7 +432,7 @@ class MainWindow:
             activebackground=BG,
             font=(FONT_MONO, 8, "bold"),
             relief="flat",
-            padx=20, pady=2,
+            padx=20, pady=0,
             bd=1,
             cursor="hand2",
             command=self._on_start_in_tray_toggle,
@@ -454,7 +455,7 @@ class MainWindow:
             cursor="hand2",
             command=self._toggle_overlay,
         )
-        self._btn.pack(fill="x", padx=20, pady=(14, 20))
+        self._btn.pack(fill="x", padx=20, pady=(10, 16))
 
     # ------------------------------------------------------------------
     # Public update methods (called from AppController via UI thread)
