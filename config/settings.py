@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
     "g": 229,
     "b": 255,
     "language": "en",
-    "model_size": "base",
+    "model_size": "large-v3-turbo",
     "device": "cuda",
     "auto_type": True,
     "start_with_windows": False,

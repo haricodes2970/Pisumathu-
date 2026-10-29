@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pisumathu"
+version = "1.0.0"
+description = "Offline push-to-talk dictation. Hold a hotkey, speak, get text in your clipboard."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Pisumathu contributors" }]
+classifiers = [
+    "Environment :: X11 Applications",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "faster-whisper==1.2.1",
+    "sounddevice==0.5.6",
+    "numpy>=1.26,<3",
+    "huggingface-hub>=0.30",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+linux = ["evdev==2.0.0"]
+windows = ["pynput>=1.7.6"]
+tray = ["pystray>=0.19.5"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+talk = "pisumathu.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pisumathu*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

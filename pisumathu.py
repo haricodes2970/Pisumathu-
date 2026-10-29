@@ -6,6 +6,10 @@ All UI updates are marshalled through Tkinter's after() to stay on the
 main thread; AppController callbacks are fired from worker threads.
 """
 
+import os
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")  # force standard HTTP, no Xet CDN
+
 import tkinter as tk
 import sys
 import argparse

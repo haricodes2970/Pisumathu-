@@ -39,3 +39,9 @@ desktop.ini
 
 # Whisper model cache (large, redownloaded automatically)
 # ~/.cache/whisper/ — not in project dir, no action needed
+
+# Local build/run artifacts
+build.log
+.superpowers/
+.uv/
+uv.lock.bak

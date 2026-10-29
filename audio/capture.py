@@ -1,98 +1,117 @@
-"""
-audio/capture.py — Microphone capture using PyAudio.
+from __future__ import annotations
 
-Records audio in a background thread. Caller starts/stops it and
-retrieves the resulting WAV bytes.
-"""
-
-import io
+import struct
 import wave
 import threading
 import tempfile
 import os
 from typing import Optional, Callable
 
+from core.audio_buffer import PreRollBuffer
 
 try:
     import pyaudio
     PYAUDIO_AVAILABLE = True
 except ImportError:
     PYAUDIO_AVAILABLE = False
-    print("[Audio] PyAudio not available — audio capture disabled.")
+    print("[Audio] PyAudio not available — capture disabled.")
 
-
-# Audio constants
-SAMPLE_RATE = 16_000   # Whisper expects 16 kHz
-CHANNELS = 1           # Mono
-CHUNK = 1024           # Frames per buffer
-FORMAT_PA = None       # Set at runtime when pyaudio is imported
+SAMPLE_RATE = 16_000
+CHANNELS = 1
+CHUNK = 1024  # ~64 ms at 16 kHz
 
 
 class AudioCapture:
     """
-    Thread-safe audio recorder.
+    Two-phase mic capture with 200 ms pre-roll.
 
-    Usage:
-        cap = AudioCapture()
-        cap.start()
-        ...user holds key...
-        wav_path = cap.stop()  # returns temp file path
-        ...transcribe wav_path...
-        cap.cleanup(wav_path)
+    Phase 1 — Listener (always running after start_listener()):
+        Mic stream is kept open. Every chunk feeds PreRollBuffer.
+        CPU cost: one PyAudio read + one deque append per 64 ms.
+
+    Phase 2 — Recording (start() / stop()):
+        drain() grabs the pre-roll, then new chunks append to _frames.
+        stop() finalises the WAV including the pre-roll prefix.
+
+    Thread model:
+        _listen_thread  — producer: reads mic, pushes to preroll or frames
+        caller thread   — consumer: calls start() / stop()
     """
 
     def __init__(
         self,
         sample_rate: int = SAMPLE_RATE,
         on_level: Optional[Callable[[float], None]] = None,
-    ):
-        """
-        Args:
-            sample_rate: Recording sample rate (Hz). Must match Whisper expectation.
-            on_level: Optional callback receiving RMS level [0.0 – 1.0] per chunk.
-        """
+    ) -> None:
         self.sample_rate = sample_rate
         self.on_level = on_level
-        self._pa: Optional["pyaudio.PyAudio"] = None
-        self._stream: Optional["pyaudio.Stream"] = None
+
+        self._preroll = PreRollBuffer(preroll_ms=200, sample_rate=sample_rate)
+
         self._frames: list[bytes] = []
-        self._lock = threading.Lock()
-        self._recording = False
-        self._thread: Optional[threading.Thread] = None
+        self._frames_lock = threading.Lock()
+
+        self._listening = False
+        self._recording = False  # guarded by _state_lock
+        self._state_lock = threading.Lock()
+
+        self._listen_thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
-    # Public API
+    # Listener lifecycle  (called once after model ready)
+    # ------------------------------------------------------------------
+
+    def start_listener(self) -> None:
+        """Open mic stream in background; fill pre-roll continuously."""
+        if not PYAUDIO_AVAILABLE:
+            return
+        with self._state_lock:
+            if self._listening:
+                return
+            self._listening = True
+
+        self._listen_thread = threading.Thread(
+            target=self._listen_loop, daemon=True, name="audio-listener"
+        )
+        self._listen_thread.start()
+
+    def stop_listener(self) -> None:
+        with self._state_lock:
+            self._listening = False
+            self._recording = False
+
+    # ------------------------------------------------------------------
+    # Recording API  (called from controller on hotkey press/release)
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        """Begin recording. Non-blocking — spins up a capture thread."""
-        if not PYAUDIO_AVAILABLE:
-            print("[Audio] PyAudio unavailable, skipping start.")
-            return
-        if self._recording:
-            return
+        """
+        Transition listener → recording.
+        Drains pre-roll so first word is never truncated.
+        """
+        with self._state_lock:
+            if self._recording:
+                return
+            preroll = self._preroll.drain()
+            with self._frames_lock:
+                self._frames = [preroll] if preroll else []
+            self._recording = True
 
-        self._frames = []
-        self._recording = True
-        self._thread = threading.Thread(target=self._record_loop, daemon=True)
-        self._thread.start()
+        # If listener isn't running yet (e.g. called before start_listener),
+        # fall through to legacy one-shot capture mode.
+        if not self._listening:
+            self.start_listener()
 
     def stop(self) -> Optional[str]:
-        """
-        Stop recording and save to a temporary WAV file.
+        """Stop recording, write WAV, return path."""
+        with self._state_lock:
+            if not self._recording:
+                return None
+            self._recording = False
 
-        Returns:
-            Path to the WAV file, or None on failure.
-        """
-        if not self._recording:
-            return None
-        self._recording = False
-        if self._thread:
-            self._thread.join(timeout=3.0)
         return self._write_wav()
 
     def cleanup(self, path: Optional[str]) -> None:
-        """Delete a temporary WAV file."""
         if path and os.path.exists(path):
             try:
                 os.unlink(path)
@@ -100,43 +119,64 @@ class AudioCapture:
                 pass
 
     # ------------------------------------------------------------------
-    # Internal
+    # Internal — listener loop (single long-lived thread)
     # ------------------------------------------------------------------
 
-    def _record_loop(self) -> None:
-        global FORMAT_PA
+    def _listen_loop(self) -> None:
         import pyaudio
-        FORMAT_PA = pyaudio.paInt16
+        import time
 
-        self._pa = pyaudio.PyAudio()
-        try:
-            self._stream = self._pa.open(
-                format=FORMAT_PA,
-                channels=CHANNELS,
-                rate=self.sample_rate,
-                input=True,
-                frames_per_buffer=CHUNK,
-            )
-            while self._recording:
+        while self._listening:
+            pa = pyaudio.PyAudio()
+            try:
+                stream = pa.open(
+                    format=pyaudio.paInt16,
+                    channels=CHANNELS,
+                    rate=self.sample_rate,
+                    input=True,
+                    frames_per_buffer=CHUNK,
+                )
                 try:
-                    data = self._stream.read(CHUNK, exception_on_overflow=False)
-                    with self._lock:
-                        self._frames.append(data)
-                    if self.on_level:
-                        self.on_level(self._compute_rms(data))
-                except OSError:
-                    break
-        finally:
-            if self._stream:
-                self._stream.stop_stream()
-                self._stream.close()
-            self._pa.terminate()
-            self._pa = None
-            self._stream = None
+                    while self._listening:
+                        try:
+                            data = stream.read(CHUNK, exception_on_overflow=False)
+                        except OSError:
+                            break
+
+                        recording = self._recording
+                        if recording:
+                            with self._frames_lock:
+                                self._frames.append(data)
+                            if self.on_level:
+                                self.on_level(_compute_rms(data))
+                        else:
+                            self._preroll.push(data)
+                finally:
+                    try:
+                        stream.stop_stream()
+                    except Exception:
+                        pass
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"[Audio] Stream error: {e} — restarting in 1s")
+                time.sleep(1.0)
+            finally:
+                try:
+                    pa.terminate()
+                except Exception:
+                    pass
+
+    # ------------------------------------------------------------------
+    # WAV serialisation
+    # ------------------------------------------------------------------
 
     def _write_wav(self) -> Optional[str]:
-        with self._lock:
+        with self._frames_lock:
             frames = list(self._frames)
+            self._frames = []
 
         if not frames:
             return None
@@ -146,21 +186,19 @@ class AudioCapture:
             os.close(fd)
             with wave.open(path, "wb") as wf:
                 wf.setnchannels(CHANNELS)
-                wf.setsampwidth(2)  # 16-bit = 2 bytes
+                wf.setsampwidth(2)
                 wf.setframerate(self.sample_rate)
                 wf.writeframes(b"".join(frames))
             return path
         except OSError as e:
-            print(f"[Audio] Failed to write WAV: {e}")
+            print(f"[Audio] WAV write failed: {e}")
             return None
 
-    @staticmethod
-    def _compute_rms(data: bytes) -> float:
-        """Return normalized RMS energy in [0.0, 1.0]."""
-        import struct
-        count = len(data) // 2
-        if count == 0:
-            return 0.0
-        shorts = struct.unpack(f"{count}h", data)
-        rms = (sum(s * s for s in shorts) / count) ** 0.5
-        return min(rms / 32768.0, 1.0)
+
+def _compute_rms(data: bytes) -> float:
+    count = len(data) // 2
+    if count == 0:
+        return 0.0
+    shorts = struct.unpack(f"{count}h", data)
+    rms = (sum(s * s for s in shorts) / count) ** 0.5
+    return min(rms / 32768.0, 1.0)

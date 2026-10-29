@@ -17,7 +17,7 @@ from typing import Optional, Callable
 from core.controller import AppState
 from config.settings import AppConfig, VERSION
 
-MODEL_OPTIONS = ["base", "small", "medium"]
+MODEL_OPTIONS: list = []  # model switching removed; engine fixed to large-v3-turbo
 
 
 # ---------------------------------------------------------------------------
@@ -175,9 +175,10 @@ class MainWindow:
         badge_frame.pack(side="right", anchor="e")
 
         self._lbl_model = tk.Label(
-            badge_frame, text=f"model: {self.cfg.model_size}",
-            bg=BG, fg=TEXT_DIM,
+            badge_frame, text="large-v3-turbo",
+            bg=BG3, fg=TEXT_DIM,
             font=(FONT_MONO, 8),
+            padx=7, pady=3,
         )
         self._lbl_model.pack(side="left", padx=(0, 6))
 
@@ -295,31 +296,7 @@ class MainWindow:
             width=2,
         )
 
-        # ── Language toggle ───────────────────────────────────────────────
-        lang_frame = tk.Frame(root, bg=BG)
-        lang_frame.pack(fill="x", padx=20, pady=(8, 0))
-
-        tk.Label(lang_frame, text="LANGUAGE",
-                 bg=BG, fg=TEXT_MUTED,
-                 font=(FONT_MONO, 7, "bold")).pack(side="left")
-
-        self._lang_var = tk.StringVar(value=self.cfg.language)
-        for code, label in [("en", "EN"), ("kn", "KN")]:
-            rb = tk.Radiobutton(
-                lang_frame, text=label,
-                variable=self._lang_var, value=code,
-                bg=BG, fg=TEXT_PRIMARY,
-                selectcolor=BG3,
-                activebackground=BG,
-                font=(FONT_MONO, 9, "bold"),
-                relief="flat",
-                indicatoron=False,
-                padx=10, pady=3,
-                command=self._on_lang_change,
-                bd=1,
-            )
-            rb.pack(side="right", padx=(4, 0))
-        self._lang_buttons = lang_frame
+        # Language locked to English — no toggle needed
 
         # ── Type-to-cursor toggle ─────────────────────────────────────────
         type_frame = tk.Frame(root, bg=BG)
@@ -359,38 +336,6 @@ class MainWindow:
         # Show/hide hint based on toggle state
         self._update_type_hint()
 
-        # -- Whisper model ---------------------------------------------------
-        model_frame = tk.Frame(root, bg=BG)
-        model_frame.pack(fill="x", padx=20, pady=(6, 0))
-
-        tk.Label(model_frame, text="MODEL",
-                 bg=BG, fg=TEXT_MUTED,
-                 font=(FONT_MONO, 7, "bold")).pack(side="left")
-
-        self._model_var = tk.StringVar(value=getattr(self.cfg, "model_size", "base"))
-        if self._model_var.get() not in MODEL_OPTIONS:
-            self._model_var.set("base")
-
-        self._cmb_model = ttk.Combobox(
-            model_frame,
-            textvariable=self._model_var,
-            values=MODEL_OPTIONS,
-            state="readonly",
-            width=10,
-            font=(FONT_MONO, 9),
-        )
-        self._cmb_model.pack(side="right")
-        self._cmb_model.bind("<<ComboboxSelected>>", self._on_model_select)
-
-        self._lbl_model_hint = tk.Label(
-            root,
-            text="Changing model reloads Whisper (first switch may take time)",
-            bg=BG, fg=TEXT_DIM,
-            font=(FONT_MONO, 7),
-            anchor="w",
-            wraplength=380,
-        )
-        self._lbl_model_hint.pack(fill="x", padx=22, pady=(0, 0))
 
         # -- Startup behavior -------------------------------------------------
         startup_frame = tk.Frame(root, bg=BG)
@@ -492,7 +437,6 @@ class MainWindow:
         self._lbl_gpu.configure(text=device)
 
     def set_model_ready(self, device: str) -> None:
-        self._lbl_model.configure(text=f"model: {self._model_var.get()}")
         self._lbl_gpu.configure(
             text=device,
             bg="#1a2a1a" if device == "CUDA" else BG3,
@@ -523,11 +467,6 @@ class MainWindow:
         self._apply_accent()
         self._on_color_change(r, g, b)
 
-    def _on_lang_change(self) -> None:
-        lang = self._lang_var.get()
-        self.cfg.language = lang
-        self._on_language_change(lang)
-
     def _on_auto_type_toggle(self) -> None:
         enabled = self._auto_type_var.get()
         self._on_auto_type_change(enabled)
@@ -538,12 +477,6 @@ class MainWindow:
 
     def _on_start_in_tray_toggle(self) -> None:
         self._on_start_in_tray_change(self._start_in_tray_var.get())
-
-    def _on_model_select(self, _event=None) -> None:
-        model = self._model_var.get()
-        self.cfg.model_size = model
-        self._lbl_model.configure(text=f"model: {model}")
-        self._on_model_change(model)
 
     def _update_type_hint(self) -> None:
         if self._auto_type_var.get():

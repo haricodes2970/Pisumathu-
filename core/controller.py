@@ -11,7 +11,7 @@ from enum import Enum, auto
 from typing import Optional, Callable
 
 from audio.capture import AudioCapture
-from transcription.engine import TranscriptionEngine
+from core.engine import TranscriptionEngine
 from config.settings import AppConfig, ConfigManager
 from core.typer import Typer
 
@@ -41,7 +41,7 @@ class AppController:
         self._engine = TranscriptionEngine(
             model_size=self.config.model_size,
             device=self.config.device,
-            language=self.config.language,
+            language="en",
         )
         self._typer = Typer()
 
@@ -82,6 +82,7 @@ class AppController:
         self._stop_hotkey_listener()
         if self._state == AppState.RECORDING:
             self._audio.stop()
+        self._audio.stop_listener()
         self.cfg_mgr.save(self.config)
 
     # ------------------------------------------------------------------
@@ -92,6 +93,7 @@ class AppController:
         self._set_state(AppState.LOADING)
         ok = self._engine.load(on_progress=self._on_status)
         if ok:
+            self._audio.start_listener()
             self._set_state(AppState.IDLE)
             self._start_hotkey_listener()
         else:
