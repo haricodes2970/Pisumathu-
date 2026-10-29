@@ -26,7 +26,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-linux = ["evdev==2.0.0"]
 windows = ["pynput>=1.7.6"]
 tray = ["pystray>=0.19.5"]
 dev = ["pytest>=8.0", "ruff>=0.6"]
