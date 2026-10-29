@@ -30,6 +30,7 @@ No other behaviour is required to ship this milestone.
 - Improved main window
 - Windows and Fedora GNOME Wayland support
 - Security fixes S1–S12 from `CURRENT_STATE.md`
+- `talk autostart on|off` as an explicit opt-in command, off by default
 
 ### Out of scope (deliberately deferred)
 
@@ -39,7 +40,8 @@ No other behaviour is required to ship this milestone.
 - History search, sync, accounts
 - GNOME Shell extension for a pixel-perfect overlay
 - Rust / whisper.cpp core
-- Autostart at OS login (explicitly rejected by the user)
+- Autostart enabled by default, or re-asserted at runtime. An explicit
+  opt-in command exists; it is never on unless the user asks for it.
 - macOS
 
 ## 3. Confirmed constraints
@@ -48,7 +50,7 @@ No other behaviour is required to ship this milestone.
 |---|---|
 | Target desktop is GNOME on Wayland | no layer-shell, no synthetic input, no global key grab |
 | Clipboard is the output contract | no focus restoration required |
-| No OS-login autostart | `talk` is the only entry point |
+| No OS-login autostart | nothing starts unless the user runs `talk`; opt-in command only |
 | Idle memory matters | model must unload when idle |
 | Windows must keep working | all OS-specific code sits behind interfaces |
 
@@ -212,7 +214,7 @@ Layout:
 ```
 
 Removed: STARTUP section, START/STOP button, language toggle, model
-dropdown placeholder, RGB sliders (moved to a header popup).
+dropdown placeholder, and the RGB sliders.
 
 Accessibility requirements:
 
@@ -278,6 +280,7 @@ talk setup               release Mutter Alt+Space binding, check `input` group
 talk setup --undo        restore the binding
 talk config              open config file
 talk model download ID   fetch + verify
+talk autostart on|off    explicit opt-in only; off by default
 talk logs                tail redacted log
 ```
 
