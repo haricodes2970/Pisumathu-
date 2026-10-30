@@ -44,6 +44,15 @@ def _is_running() -> bool:
     return True
 
 
+def _lock_is_free() -> bool:
+    """True when no process holds the daemon lock."""
+    probe = DaemonLock(paths.lock_path())
+    if probe.acquire():
+        probe.release()
+        return True
+    return False
+
+
 def _spawn_daemon() -> None:
     log_path = paths.log_path()
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,9 +240,7 @@ def _cmd_start() -> int:
     _spawn_daemon()
     if not _wait_until_running():
         # Distinguish "crashed on startup" from "still coming up".
-        probe = DaemonLock(paths.lock_path())
-        if probe.acquire():
-            probe.release()
+        if _lock_is_free():
             print("pisumathu failed to start. Check the log:", file=sys.stderr)
             print(f"  {paths.log_path()}", file=sys.stderr)
             return EXIT_ERROR
@@ -269,9 +276,11 @@ def _cmd_stop() -> int:
         print(f"could not stop the daemon: {exc}", file=sys.stderr)
         return EXIT_ERROR
 
-    deadline = time.monotonic() + 8.0
+    deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
-        if not _is_running():
+        # The socket stops answering before the process exits and releases the
+        # lock. Both must be clear, or the next 'talk' loses the race and dies.
+        if not _is_running() and _lock_is_free():
             print("pisumathu stopped.")
             return EXIT_OK
         time.sleep(0.1)
