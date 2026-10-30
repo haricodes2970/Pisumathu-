@@ -37,7 +37,7 @@ The rewrite is complete and the app works on Fedora GNOME Wayland.
 | Output | clipboard only, via `wl-copy` / `xsel` / Win32 |
 | Autostart | opt-in only, never written at runtime |
 | `talk` command | installed by `pyproject.toml` |
-| Tests | `pytest -q` — 111 passing |
+| Tests | `pytest -q` — 121 passing |
 
 The legacy root-level modules (`controller.py`, `engine.py`, `typer.py`,
 `pill.py`, and the rest) and the `transcription/` package were deleted. They
@@ -51,12 +51,29 @@ Recorded on Fedora 44, GNOME 50.6, Wayland, Python 3.14:
 - model load: 0.31 s; transcription of 3.4 s of speech: 0.81 s on CPU int8
 - clipboard round trip through `wl-copy`: pass
 - full cycle `recording → transcribing → copied`: pass
+- **a real `Alt+Space` injected through `/dev/uinput`**: pass — the daemon's
+  `/dev/input` reader reacts exactly as it does to a physical keypress
+- **real audio captured through PortAudio**: pass — the sentence was played
+  into a null sink whose monitor was the default source, and the transcript
+  matched
 - single instance: one daemon, lock file holds the right pid
 - `talk setup` frees `Alt+Space` and `--undo` restores it
 - cold start: 0.96 s
+- start/stop cycling five times in a row: no lock races
 
-Not verified on this machine: Windows, and a real physical keypress (the
-edge handler is unit tested instead).
+Not verified on this machine: Windows, and a human speaking into a physical
+microphone (a synthesised voice was used instead).
+
+Reproduce the two integration checks with:
+
+```bash
+python scripts/e2e_check.py    # engine, clipboard, dictation cycle
+python scripts/live_check.py   # real keypress, real audio, real clipboard
+```
+
+`live_check.py` needs `input` group membership, PipeWire, `espeak-ng`,
+`ffmpeg` and `pactl`. It restores the default audio source and removes its
+null sink when it finishes.
 
 ## 3. Non-negotiable product rules
 
@@ -215,6 +232,10 @@ updated in the same change.
 
 - **`-transparentcolor` is Windows-only.** `ui/pill.py` applies it only on
   Windows; using it on X11 raises and leaves an opaque black rectangle.
+- **Never trust ctranslate2's CUDA report.** A machine can have the driver and
+  a CUDA device but no cuBLAS, and `device="cuda"` only fails on the first
+  inference. `asr/engine.py` warms the model up on silence and falls back to
+  CPU. Do not remove that.
 - **Do not reintroduce PyAV decoding.** `asr/engine.py` reads the WAV itself
   and passes a float32 array. faster-whisper's file path calls
   `av.open(metadata_errors=...)`, which PyAV 16 removed.
