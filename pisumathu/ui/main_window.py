@@ -161,9 +161,7 @@ class MainWindow:
         row = tk.Frame(self.window, bg=BACKGROUND)
         row.pack(fill="x", padx=18, pady=(14, 0))
 
-        self.state_dot = tk.Canvas(
-            row, width=10, height=10, bg=BACKGROUND, highlightthickness=0
-        )
+        self.state_dot = tk.Canvas(row, width=10, height=10, bg=BACKGROUND, highlightthickness=0)
         self.state_dot.pack(side="left")
         self._dot = self.state_dot.create_oval(1, 1, 9, 9, fill=SUCCESS, outline="")
 
@@ -172,9 +170,7 @@ class MainWindow:
         )
         self.state_label.pack(side="left", padx=(8, 0))
 
-        self.latency_label = tk.Label(
-            row, text="", bg=BACKGROUND, fg=MUTED, font=(FONT_FAMILY, 9)
-        )
+        self.latency_label = tk.Label(row, text="", bg=BACKGROUND, fg=MUTED, font=(FONT_FAMILY, 9))
         self.latency_label.pack(side="right")
 
     def _build_settings(self) -> None:
@@ -201,9 +197,7 @@ class MainWindow:
         self.hotkey_label.pack(side="left", padx=(12, 8))
         self._button(hotkey_row, "Change", self._change_hotkey).pack(side="left")
 
-        self.auto_clear = tk.IntVar(
-            value=1 if self.config.clipboard_auto_clear_seconds else 0
-        )
+        self.auto_clear = tk.IntVar(value=1 if self.config.clipboard_auto_clear_seconds else 0)
         checkbox = tk.Checkbutton(
             section,
             text="Clear clipboard 60 s after copying",
@@ -233,9 +227,7 @@ class MainWindow:
             width=16,
         )
         self.model_box.pack(side="left", padx=(12, 8))
-        self.download_button = self._button(
-            model_row, "Download", self._download_model
-        )
+        self.download_button = self._button(model_row, "Download", self._download_model)
         self.download_button.pack(side="left")
 
         self.model_status = tk.Label(

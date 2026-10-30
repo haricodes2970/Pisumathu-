@@ -77,9 +77,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _write_manifest(
-    directory: Path, name: str, hashes: dict[str, str] | None = None
-) -> Path:
+def _write_manifest(directory: Path, name: str, hashes: dict[str, str] | None = None) -> Path:
     if hashes is None:
         hashes = {
             str(p.relative_to(directory)): _sha256(p)
@@ -176,9 +174,7 @@ def _download_file(
     actual = digest.hexdigest()
     if expected_sha256 and actual != expected_sha256:
         destination.unlink(missing_ok=True)
-        raise ModelError(
-            f"checksum mismatch for {label}: expected {expected_sha256}, got {actual}"
-        )
+        raise ModelError(f"checksum mismatch for {label}: expected {expected_sha256}, got {actual}")
     return actual
 
 

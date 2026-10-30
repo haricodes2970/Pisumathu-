@@ -43,13 +43,21 @@ def make_speech(directory: Path) -> Path:
     """Synthesise the test sentence as 16 kHz mono PCM."""
     raw = directory / "raw.wav"
     final = directory / "speech16k.wav"
-    subprocess.run(
-        ["espeak-ng", "-w", str(raw), "-s", "150", SENTENCE], check=True
-    )
+    subprocess.run(["espeak-ng", "-w", str(raw), "-s", "150", SENTENCE], check=True)
     subprocess.run(
         [
-            "ffmpeg", "-y", "-loglevel", "error",
-            "-i", str(raw), "-ar", "16000", "-ac", "1", "-sample_fmt", "s16",
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(raw),
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            "-sample_fmt",
+            "s16",
             str(final),
         ],
         check=True,
@@ -120,9 +128,7 @@ def main() -> int:
         print(f"  synthesized {seconds:.2f}s of speech")
 
         print("2. engine")
-        engine = TranscriptionEngine(
-            MODEL, resolve_model(MODEL), device="cpu", compute_type="int8"
-        )
+        engine = TranscriptionEngine(MODEL, resolve_model(MODEL), device="cpu", compute_type="int8")
         started = time.monotonic()
         engine.load()
         print(f"  load {time.monotonic() - started:.2f}s")
@@ -132,17 +138,13 @@ def main() -> int:
         elapsed = time.monotonic() - started
         print(f"  transcribe {elapsed:.2f}s -> {text!r}")
         failures += not check("transcript is non-empty", bool(text))
-        failures += not check(
-            "transcript mentions dictation", "dictation" in text.lower()
-        )
+        failures += not check("transcript mentions dictation", "dictation" in text.lower())
 
         print("3. clipboard")
         clipboard = Clipboard()
         print(f"  backend {clipboard.backend}")
         failures += not check("copy accepted", clipboard.copy(text))
-        failures += not check(
-            "clipboard round trip", read_clipboard().strip() == text.strip()
-        )
+        failures += not check("clipboard round trip", read_clipboard().strip() == text.strip())
 
         print("4. dictation cycle")
         recorder = ReplayRecorder(speech)

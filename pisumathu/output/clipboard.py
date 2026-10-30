@@ -86,9 +86,7 @@ class WindowsClipboard(ClipboardBackend):
 
 
 def _linux_backend() -> ClipboardBackend | None:
-    if shutil.which("wl-copy") and (
-        sys.platform == "linux" and _has_wayland()
-    ):
+    if shutil.which("wl-copy") and (sys.platform == "linux" and _has_wayland()):
         return CommandClipboard("linux-wl-copy", ["wl-copy"])
     if shutil.which("xsel"):
         return CommandClipboard("linux-xsel", ["xsel", "--clipboard", "--input"])

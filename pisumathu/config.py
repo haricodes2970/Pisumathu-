@@ -84,9 +84,7 @@ def save_config(config: Config, path: Path | None = None) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(config.to_dict(), indent=2, sort_keys=True) + "\n"
 
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=".config-", suffix=".json", dir=str(target.parent)
-    )
+    fd, tmp_name = tempfile.mkstemp(prefix=".config-", suffix=".json", dir=str(target.parent))
     tmp = Path(tmp_name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
