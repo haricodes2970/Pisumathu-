@@ -9,12 +9,48 @@ from __future__ import annotations
 import gc
 import os
 import threading
+import wave
 from pathlib import Path
+
+import numpy as np
 
 from .models import ModelError, verify_model
 
 DEFAULT_BEAM_SIZE = 1
 DEFAULT_VAD = True
+SAMPLE_RATE = 16_000
+
+
+def _load_audio(path: Path) -> np.ndarray | None:
+    """Read a 16 kHz mono PCM WAV into float32 samples in [-1, 1].
+
+    faster-whisper normally shells out to PyAV for decoding. We already own
+    the recorder, so the file is always PCM we wrote ourselves; decoding it
+    here removes a fragile native dependency from the hot path.
+    """
+    try:
+        with wave.open(str(path), "rb") as handle:
+            if handle.getframerate() != SAMPLE_RATE:
+                raise ValueError(
+                    f"expected {SAMPLE_RATE} Hz audio, got {handle.getframerate()} Hz"
+                )
+            channels = handle.getnchannels()
+            width = handle.getsampwidth()
+            frames = handle.readframes(handle.getnframes())
+    except (OSError, EOFError, wave.Error):
+        return None
+
+    if not frames:
+        return None
+    if width != 2:
+        raise ValueError(f"expected 16-bit audio, got {width * 8}-bit")
+
+    samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    if channels > 1:
+        samples = samples.reshape(-1, channels).mean(axis=1)
+    if samples.size == 0:
+        return None
+    return samples
 
 
 class TranscriptionEngine:
@@ -116,8 +152,12 @@ class TranscriptionEngine:
         if model is None:
             raise RuntimeError("model is not loaded")
 
+        audio = _load_audio(wav_path)
+        if audio is None:
+            return None
+
         segments, _info = model.transcribe(
-            str(wav_path),
+            audio,
             language=self.language,
             beam_size=self.beam_size,
             best_of=self.beam_size,
