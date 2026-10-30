@@ -34,6 +34,57 @@ def test_release_is_idempotent(tmp_path):
     lock.release()
 
 
+def test_acquire_without_wait_returns_immediately(tmp_path):
+    import time
+
+    path = tmp_path / "daemon.lock"
+    holder = DaemonLock(path)
+    assert holder.acquire() is True
+    try:
+        started = time.monotonic()
+        assert DaemonLock(path).acquire() is False
+        assert time.monotonic() - started < 0.5
+    finally:
+        holder.release()
+
+
+def test_acquire_waits_for_a_slow_predecessor(tmp_path):
+    """A spawned daemon must tolerate a predecessor that is still exiting."""
+    import threading
+    import time
+
+    path = tmp_path / "daemon.lock"
+    holder = DaemonLock(path)
+    assert holder.acquire() is True
+
+    def release_soon() -> None:
+        time.sleep(0.2)
+        holder.release()
+
+    releaser = threading.Thread(target=release_soon)
+    releaser.start()
+    winner = DaemonLock(path)
+    try:
+        assert winner.acquire(wait=3.0) is True
+    finally:
+        releaser.join()
+        winner.release()
+
+
+def test_acquire_gives_up_after_the_wait(tmp_path):
+    import time
+
+    path = tmp_path / "daemon.lock"
+    holder = DaemonLock(path)
+    assert holder.acquire() is True
+    try:
+        started = time.monotonic()
+        assert DaemonLock(path).acquire(wait=0.2) is False
+        assert time.monotonic() - started >= 0.2
+    finally:
+        holder.release()
+
+
 def test_send_to_missing_daemon_raises(tmp_path):
     with pytest.raises(DaemonNotRunning):
         send("status", tmp_path / "nothing.sock", timeout=0.2)
