@@ -9,6 +9,7 @@ missing tray is not an error: the daemon is driven by the hotkey and the
 from __future__ import annotations
 
 import logging
+import threading
 
 LOG = logging.getLogger("pisumathu.tray")
 
@@ -69,9 +70,16 @@ class Tray:
             self._on_quit()
 
     def stop(self) -> None:
+        """Detach the icon without letting shutdown block on it."""
         icon, self._icon = self._icon, None
         if icon is None:
             return
+        thread = threading.Thread(target=self._safe_stop, args=(icon,), daemon=True)
+        thread.start()
+        thread.join(timeout=1.0)
+
+    @staticmethod
+    def _safe_stop(icon) -> None:  # noqa: ANN001 - pystray.Icon
         try:
             icon.stop()
         except Exception:  # noqa: BLE001
