@@ -54,3 +54,72 @@ def test_null_backend_reports_unavailable():
 
 def test_backend_name_exposed():
     assert Clipboard(Recording()).backend == "recording"
+
+
+class ChainClipboard(Clipboard):
+    """Clipboard with an explicit backend chain."""
+
+    def __init__(self, *backends: ClipboardBackend) -> None:
+        self._backends = list(backends)
+        self._used = None
+
+
+def test_falls_back_when_the_first_backend_fails():
+    primary = Recording(result=False)
+    primary.name = "linux-wl-copy"
+    fallback = Recording()
+    fallback.name = "linux-xsel"
+
+    clipboard = ChainClipboard(primary, fallback)
+
+    assert clipboard.copy("hello") is True
+    assert primary.calls == ["hello"]
+    assert fallback.calls == ["hello"]
+    assert clipboard.backend == "linux-xsel"
+
+
+def test_falls_back_when_the_first_backend_raises():
+    fallback = Recording()
+    fallback.name = "linux-xsel"
+
+    clipboard = ChainClipboard(Exploding(), fallback)
+
+    assert clipboard.copy("hello") is True
+    assert fallback.calls == ["hello"]
+
+
+def test_reports_failure_when_every_backend_fails():
+    first = Recording(result=False)
+    second = Recording(result=False)
+    clipboard = ChainClipboard(first, second)
+
+    assert clipboard.copy("hello") is False
+
+
+def test_unavailable_backend_is_skipped():
+    fallback = Recording()
+    fallback.name = "linux-xsel"
+    clipboard = ChainClipboard(NullClipboard(), fallback)
+
+    assert clipboard.copy("hello") is True
+    assert clipboard.backend == "linux-xsel"
+
+
+def test_backend_name_is_the_one_that_worked():
+    backend = Recording()
+    backend.name = "linux-wl-copy"
+    clipboard = ChainClipboard(backend)
+
+    assert clipboard.backend == "linux-wl-copy"
+    clipboard.copy("hello")
+    assert clipboard.backend == "linux-wl-copy"
+
+
+def test_clear_falls_through_the_chain():
+    first = Recording(result=False)
+    second = Recording(result=True)
+    clipboard = ChainClipboard(first, second)
+
+    assert clipboard.clear() is True
+    assert first.calls == [""]
+    assert second.calls == [""]
