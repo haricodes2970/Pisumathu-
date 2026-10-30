@@ -37,7 +37,7 @@ The rewrite is complete and the app works on Fedora GNOME Wayland.
 | Output | clipboard only, via `wl-copy` / `xsel` / Win32 |
 | Autostart | opt-in only, never written at runtime |
 | `talk` command | installed by `pyproject.toml` |
-| Tests | `pytest -q` — 121 passing |
+| Tests | `pytest -q` — 127 passing |
 
 The legacy root-level modules (`controller.py`, `engine.py`, `typer.py`,
 `pill.py`, and the rest) and the `transcription/` package were deleted. They
@@ -56,6 +56,11 @@ Recorded on Fedora 44, GNOME 50.6, Wayland, Python 3.14:
 - **real audio captured through PortAudio**: pass — the sentence was played
   into a null sink whose monitor was the default source, and the transcript
   matched
+- **the pill**: pass — captured mid-cycle with `import -window`; the panel is
+  240x40 at the bottom centre and reads "Recording 1.4s" with a red dot, then
+  "Transcribing...", then the copied check
+- **clipboard fallback**: pass — with the Wayland clipboard wedged, `wl-copy`
+  timed out and the text arrived through `xsel` instead
 - single instance: one daemon, lock file holds the right pid
 - `talk setup` frees `Alt+Space` and `--undo` restores it
 - cold start: 0.96 s
