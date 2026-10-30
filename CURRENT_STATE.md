@@ -1,5 +1,11 @@
 # Pisumathu — Current State
 
+> **Historical document.** This is the audit of the code *before* the rewrite.
+> The migration it recommended is complete: the `pisumathu/` package replaced
+> every module described below, and the legacy files it lists under §1.2 and
+> §5.3 have been deleted. Read it for the reasoning, not for the current
+> layout. `AGENTS.md` describes how the code is organised now.
+
 Reverse-audit of the codebase as it exists in the working tree.
 Every claim cites `file:line`. Anything that could not be determined from
 code is marked **UNKNOWN** with the missing evidence listed.
