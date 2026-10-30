@@ -195,13 +195,23 @@ class Daemon:
             self.server = None
 
     def _start_tray(self) -> None:
-        from .tray import Tray
+        """Attach the tray off the critical path.
 
-        tray = Tray(on_show=self._show_window, on_quit=self.request_shutdown)
-        if tray.start():
-            self.tray = tray
-        else:
-            LOG.info("tray icon unavailable; continuing without it")
+        pystray can block for several seconds while it negotiates with the
+        desktop. Startup and the control channel must not wait for it, or
+        ``talk`` reports failure while the daemon is still coming up.
+        """
+
+        def work() -> None:
+            from .tray import Tray
+
+            tray = Tray(on_show=self._show_window, on_quit=self.request_shutdown)
+            if tray.start():
+                self.tray = tray
+            else:
+                LOG.info("tray icon unavailable; continuing without it")
+
+        threading.Thread(target=work, name="tray-start", daemon=True).start()
 
     # -- hotkey edges --------------------------------------------------
 
