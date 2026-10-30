@@ -26,32 +26,37 @@ the parts that can be built reliably offline and cross-platform.
 **It is not** a cloud service, a note app, or a general assistant. It does
 not phone home.
 
-## 2. Current status — read this before editing
+## 2. Current status
 
-The repository is mid-migration.
+The rewrite is complete and the app works on Fedora GNOME Wayland.
 
 | Area | State |
 |---|---|
-| Platform | Windows-only today |
-| Hotkey | hardcoded `Ctrl_L + Ctrl_R` |
-| Output | types into the focused window, **no clipboard support at all** |
-| Autostart | writes the Windows `Run` key, and re-writes it on every launch |
-| `talk` command | does not exist |
-| Linux | does not run |
+| Platform | Linux (Wayland and X11) and Windows |
+| Hotkey | `Alt+Space`, configurable, read from `/dev/input` on Linux |
+| Output | clipboard only, via `wl-copy` / `xsel` / Win32 |
+| Autostart | opt-in only, never written at runtime |
+| `talk` command | installed by `pyproject.toml` |
+| Tests | `pytest -q` — 111 passing |
 
-Two required files are **untracked in git** and the app will not import
-without them:
+The legacy root-level modules (`controller.py`, `engine.py`, `typer.py`,
+`pill.py`, and the rest) and the `transcription/` package were deleted. They
+remain reachable in git history at commit `616a654`. Do not resurrect them.
 
-- `core/engine.py`
-- `core/audio_buffer.py`
+## 2a. Verified end to end
 
-Do not delete them. `git add` them as part of Phase 0.
+Recorded on Fedora 44, GNOME 50.6, Wayland, Python 3.14:
 
-There are also **eight duplicate legacy modules** at the repo root that
-shadow the real ones (`controller.py`, `engine.py`, `engine_cpu.py`,
-`capture.py`, `settings.py`, `typer.py`, `main_window.py`, `pill.py`) plus
-the `transcription/` package. Editing those has **no runtime effect**.
-They are scheduled for deletion. Do not add features to them.
+- model download, hash verification and manifest: pass
+- model load: 0.31 s; transcription of 3.4 s of speech: 0.81 s on CPU int8
+- clipboard round trip through `wl-copy`: pass
+- full cycle `recording → transcribing → copied`: pass
+- single instance: one daemon, lock file holds the right pid
+- `talk setup` frees `Alt+Space` and `--undo` restores it
+- cold start: 0.96 s
+
+Not verified on this machine: Windows, and a real physical keypress (the
+edge handler is unit tested instead).
 
 ## 3. Non-negotiable product rules
 
@@ -208,17 +213,21 @@ updated in the same change.
 
 ## 12. Known traps
 
-- **Editing the wrong file.** Eight root-level duplicates exist. Check the
-  import path before editing.
-- **`ui/pill.py:98` uses `-transparentcolor`.** That Tk attribute is
-  Windows-only. On Linux it produces an opaque black rectangle. Guard it.
-- **`core/engine.py:106` hardcodes `language="en"`.** Config is ignored.
-  Fix it, do not preserve it.
-- **`pisumathu.py:226-227` re-enables autostart on every launch.** This is
-  why the app reappeared at login after being disabled. Delete the block.
-- **`core/controller.py:185-187`** only cleans up the WAV on the success
-  path. Move it into `finally`.
-- **Model default is inconsistent** across `config/settings.py:21`,
-  `:35`, and `ui/main_window.py:178`. Pick one source of truth.
-- **Six of eight threads are never joined.** Do not add another daemon
-  thread without a shutdown path.
+- **`-transparentcolor` is Windows-only.** `ui/pill.py` applies it only on
+  Windows; using it on X11 raises and leaves an opaque black rectangle.
+- **Do not reintroduce PyAV decoding.** `asr/engine.py` reads the WAV itself
+  and passes a float32 array. faster-whisper's file path calls
+  `av.open(metadata_errors=...)`, which PyAV 16 removed.
+- **Do not use `snapshot_download`.** It stalled for minutes here. Downloads
+  go through the HF tree API so each file can be hash-verified.
+- **IPv6 can hang downloads.** `asr/models.py` prefers IPv4 while fetching;
+  without it `urlopen` blocks on a host with AAAA records but no route.
+- **The tray is optional and slow.** It is attached on a background thread and
+  stopped on another one; never call it on the main path.
+- **Tk is main-thread only.** Worker threads push onto `Daemon._events` and
+  the main loop drains it. Do not call `after()` from a worker.
+- **Never write autostart at runtime.** Only `talk autostart on` may do that.
+  The old build re-enabled itself on every launch, which is what made it
+  reappear at login after being disabled.
+- **WAV cleanup belongs in `finally`.** `state.py` deletes the file there so a
+  failed transcription cannot leave recorded speech on disk.
