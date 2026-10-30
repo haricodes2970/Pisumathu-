@@ -7,12 +7,21 @@ the network: the engine receives a local directory and sets
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import socket
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
 from .. import paths
+
+HF_API = "https://huggingface.co/api/models"
+HF_RESOLVE = "https://huggingface.co/{repo}/resolve/main/{path}"
+USER_AGENT = "pisumathu/1.0 (+https://github.com/haricodes2970/Pisumathu-)"
+DOWNLOAD_CHUNK = 1024 * 1024
 
 MODEL_IDS: dict[str, str] = {
     "tiny": "Systran/faster-whisper-tiny",
@@ -68,13 +77,16 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _write_manifest(directory: Path, name: str) -> Path:
-    files = {
-        str(p.relative_to(directory)): _sha256(p)
-        for p in sorted(directory.rglob("*"))
-        if p.is_file() and p.name != MANIFEST_NAME
-    }
-    manifest = {"name": name, "repo": MODEL_IDS[name], "files": files}
+def _write_manifest(
+    directory: Path, name: str, hashes: dict[str, str] | None = None
+) -> Path:
+    if hashes is None:
+        hashes = {
+            str(p.relative_to(directory)): _sha256(p)
+            for p in sorted(directory.rglob("*"))
+            if p.is_file() and p.name != MANIFEST_NAME
+        }
+    manifest = {"name": name, "repo": MODEL_IDS[name], "files": hashes}
     path = directory / MANIFEST_NAME
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
@@ -106,30 +118,123 @@ def verify_model(name: str) -> bool:
     return True
 
 
+@contextlib.contextmanager
+def _prefer_ipv4():
+    """Resolve to IPv4 addresses first for the duration of a download.
+
+    On hosts with an IPv6 address but no working IPv6 route, Python's
+    ``getaddrinfo`` returns AAAA records first and ``urlopen`` blocks until
+    the connection times out, while ``curl`` falls back to IPv4 instantly.
+    Preferring IPv4 avoids a multi-minute stall on first download.
+    """
+    original = socket.getaddrinfo
+
+    def ipv4_first(host, port, family=0, type=0, proto=0, flags=0):  # noqa: A002
+        results = original(host, port, family, type, proto, flags)
+        ipv4 = [entry for entry in results if entry[0] == socket.AF_INET]
+        return ipv4 or results
+
+    socket.getaddrinfo = ipv4_first
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = original
+
+
+def _fetch_json(url: str, timeout: float = 30.0) -> object:
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with _prefer_ipv4(), urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _download_file(
+    url: str,
+    destination: Path,
+    expected_sha256: str | None,
+    progress: Callable[[str], None] | None,
+    label: str,
+) -> str:
+    """Download one file and return its SHA256, verifying the remote hash."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+
+    with _prefer_ipv4(), urllib.request.urlopen(request, timeout=60) as response:
+        total = int(response.headers.get("Content-Length") or 0)
+        written = 0
+        with destination.open("wb") as handle:
+            while True:
+                block = response.read(DOWNLOAD_CHUNK)
+                if not block:
+                    break
+                handle.write(block)
+                digest.update(block)
+                written += len(block)
+                if progress and total:
+                    progress(f"  {label}  {written * 100 // total}%")
+
+    actual = digest.hexdigest()
+    if expected_sha256 and actual != expected_sha256:
+        destination.unlink(missing_ok=True)
+        raise ModelError(
+            f"checksum mismatch for {label}: expected {expected_sha256}, got {actual}"
+        )
+    return actual
+
+
 def download_model(
     name: str,
     progress: Callable[[str], None] | None = None,
 ) -> Path:
-    """Fetch a model into the application data directory and record hashes."""
+    """Fetch a model into the application data directory and record hashes.
+
+    Every file is verified against the SHA256 the Hugging Face API reports,
+    so a truncated or tampered transfer is rejected rather than loaded.
+    """
     directory = resolve_model(name)
     directory.mkdir(parents=True, exist_ok=True)
+    repo = MODEL_IDS[name]
 
     if progress:
-        progress(f"downloading {name} from {MODEL_IDS[name]}")
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError as exc:
-        raise ModelError("huggingface_hub is not installed") from exc
+        progress(f"listing {repo}")
 
     try:
-        snapshot_download(repo_id=MODEL_IDS[name], local_dir=str(directory))
-    except Exception as exc:  # noqa: BLE001 - network and auth errors alike
-        raise ModelError(f"download failed for {name}: {exc}") from exc
+        tree = _fetch_json(f"{HF_API}/{repo}/tree/main")
+    except (urllib.error.URLError, ValueError, OSError) as exc:
+        raise ModelError(f"cannot reach Hugging Face: {exc}") from exc
+    if not isinstance(tree, list):
+        raise ModelError(f"unexpected listing for {repo}")
+
+    hashes: dict[str, str] = {}
+    for entry in tree:
+        if not isinstance(entry, dict) or entry.get("type") != "file":
+            continue
+        relative = entry.get("path")
+        if not relative:
+            continue
+        # Reject anything that would escape the model directory.
+        target = (directory / relative).resolve()
+        if directory.resolve() not in target.parents:
+            raise ModelError(f"refusing suspicious path {relative!r}")
+
+        expected = (entry.get("lfs") or {}).get("oid")
+        if progress:
+            progress(f"fetching {relative}")
+        try:
+            hashes[relative] = _download_file(
+                HF_RESOLVE.format(repo=repo, path=relative),
+                target,
+                expected,
+                progress,
+                relative,
+            )
+        except (urllib.error.URLError, OSError) as exc:
+            raise ModelError(f"download failed for {relative}: {exc}") from exc
 
     if not (directory / _REQUIRED_FILE).is_file():
         raise ModelError(f"download for {name} produced no {_REQUIRED_FILE}")
 
-    _write_manifest(directory, name)
+    _write_manifest(directory, name, hashes)
     if progress:
         progress(f"verified {name}")
     return directory
