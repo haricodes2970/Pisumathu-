@@ -31,9 +31,7 @@ def _load_audio(path: Path) -> np.ndarray | None:
     try:
         with wave.open(str(path), "rb") as handle:
             if handle.getframerate() != SAMPLE_RATE:
-                raise ValueError(
-                    f"expected {SAMPLE_RATE} Hz audio, got {handle.getframerate()} Hz"
-                )
+                raise ValueError(f"expected {SAMPLE_RATE} Hz audio, got {handle.getframerate()} Hz")
             channels = handle.getnchannels()
             width = handle.getsampwidth()
             frames = handle.readframes(handle.getnframes())
@@ -51,6 +49,24 @@ def _load_audio(path: Path) -> np.ndarray | None:
     if samples.size == 0:
         return None
     return samples
+
+
+def _warm_up(model) -> None:  # noqa: ANN001 - faster_whisper.WhisperModel
+    """Force one real inference so a broken device fails here, not later.
+
+    ctranslate2 accepts ``device="cuda"`` on a machine that has the driver
+    but not cuBLAS, and only raises when it first needs the library. A
+    second of silence is enough to prove the device actually computes, which
+    keeps ``talk status`` honest and moves the failure to startup.
+    """
+    segments, _info = model.transcribe(
+        np.zeros(SAMPLE_RATE, dtype=np.float32),
+        beam_size=1,
+        vad_filter=False,
+        condition_on_previous_text=False,
+    )
+    for _segment in segments:
+        pass
 
 
 class TranscriptionEngine:
@@ -75,6 +91,7 @@ class TranscriptionEngine:
         self.vad_filter = vad_filter
         self._model = None
         self._resolved_device: str | None = None
+        self._load_warning: str | None = None
         self._lock = threading.Lock()
 
     # -- lifecycle ----------------------------------------------------
@@ -86,6 +103,11 @@ class TranscriptionEngine:
     @property
     def resolved_device(self) -> str:
         return self._resolved_device or self.device
+
+    @property
+    def load_warning(self) -> str | None:
+        """Why the requested device was not used, if it was not."""
+        return self._load_warning
 
     def _resolve_device(self) -> str:
         if self.device != "auto":
@@ -121,26 +143,47 @@ class TranscriptionEngine:
             from faster_whisper import WhisperModel
 
             device = self._resolve_device()
-            try:
-                model = WhisperModel(
-                    str(self.model_path),
-                    device=device,
-                    compute_type=self.compute_type,
-                    local_files_only=True,
-                    num_workers=1,
-                    cpu_threads=2,
-                )
-            except Exception as exc:  # noqa: BLE001 - surfaced to the user
-                raise ModelError(f"failed to load model on {device}: {exc}") from exc
+            # A GPU can be present while its runtime libraries are not: an
+            # NVIDIA card with no cuBLAS installed reports a CUDA device and
+            # then fails at load. Falling back keeps dictation working instead
+            # of turning every press into an error.
+            attempts = [device]
+            if self.device == "auto" and device != "cpu":
+                attempts.append("cpu")
 
-            self._model = model
-            self._resolved_device = device
+            last_error: Exception | None = None
+            for candidate in attempts:
+                try:
+                    model = WhisperModel(
+                        str(self.model_path),
+                        device=candidate,
+                        compute_type=self.compute_type,
+                        local_files_only=True,
+                        num_workers=1,
+                        cpu_threads=2,
+                    )
+                    if candidate != "cpu":
+                        _warm_up(model)
+                except Exception as exc:  # noqa: BLE001 - try the next device
+                    last_error = exc
+                    continue
+                self._model = model
+                self._resolved_device = candidate
+                self._load_warning = (
+                    None
+                    if candidate == device
+                    else f"{device} unavailable, using {candidate}: {last_error}"
+                )
+                return
+
+            raise ModelError(f"failed to load model on {device}: {last_error}")
 
     def unload(self) -> None:
         """Drop the model and release its memory."""
         with self._lock:
             self._model = None
             self._resolved_device = None
+            self._load_warning = None
         gc.collect()
 
     # -- inference ----------------------------------------------------
