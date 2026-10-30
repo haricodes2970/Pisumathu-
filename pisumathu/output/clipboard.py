@@ -17,7 +17,10 @@ import sys
 
 from .base import ClipboardBackend
 
-TIMEOUT_SECONDS = 5.0
+# A healthy wl-copy returns in milliseconds; a wedged Wayland clipboard blocks
+# until the timeout. Keeping this short bounds the cost of falling back to the
+# next backend instead of stalling dictation for five seconds.
+TIMEOUT_SECONDS = 2.0
 
 
 class CommandClipboard(ClipboardBackend):
@@ -85,24 +88,6 @@ class WindowsClipboard(ClipboardBackend):
         return True
 
 
-def _linux_backend() -> ClipboardBackend | None:
-    if shutil.which("wl-copy") and (sys.platform == "linux" and _has_wayland()):
-        return CommandClipboard("linux-wl-copy", ["wl-copy"])
-    if shutil.which("xsel"):
-        return CommandClipboard("linux-xsel", ["xsel", "--clipboard", "--input"])
-    if shutil.which("xclip"):
-        return CommandClipboard("linux-xclip", ["xclip", "-selection", "clipboard"])
-    if shutil.which("wl-copy"):
-        return CommandClipboard("linux-wl-copy", ["wl-copy"])
-    return None
-
-
-def _has_wayland() -> bool:
-    import os
-
-    return bool(os.environ.get("WAYLAND_DISPLAY"))
-
-
 class NullClipboard(ClipboardBackend):
     """Used when no clipboard mechanism is available."""
 
@@ -112,39 +97,78 @@ class NullClipboard(ClipboardBackend):
         return False
 
 
-def default_backend() -> ClipboardBackend:
+def _linux_backends() -> list[ClipboardBackend]:
+    """Every usable Linux clipboard, in preference order.
+
+    A wedged Wayland clipboard happens: killing a ``wl-copy`` that still owns
+    the selection can leave the compositor unresponsive, and ``wl-copy`` then
+    blocks until it times out. X11 clients still work through XWayland, and
+    the compositor syncs the selection back, so keeping a fallback means a
+    transcript is never lost to a stuck clipboard.
+    """
+    backends: list[ClipboardBackend] = []
+    if shutil.which("wl-copy"):
+        backends.append(CommandClipboard("linux-wl-copy", ["wl-copy"]))
+    if shutil.which("xsel"):
+        backends.append(CommandClipboard("linux-xsel", ["xsel", "--clipboard", "--input"]))
+    if shutil.which("xclip"):
+        backends.append(CommandClipboard("linux-xclip", ["xclip", "-selection", "clipboard"]))
+    return backends
+
+
+def default_backends() -> list[ClipboardBackend]:
     if sys.platform == "win32":
-        return WindowsClipboard()
-    backend = _linux_backend()
-    return backend if backend is not None else NullClipboard()
+        return [WindowsClipboard()]
+    backends = _linux_backends()
+    return backends if backends else [NullClipboard()]
+
+
+def default_backend() -> ClipboardBackend:
+    return default_backends()[0]
 
 
 class Clipboard:
-    """Facade over the selected backend, with failure containment."""
+    """Facade over the clipboard backends, with failure containment.
+
+    Backends are tried in order until one succeeds, so a stuck display-server
+    clipboard degrades to the next mechanism instead of losing the text.
+    """
 
     def __init__(self, backend: ClipboardBackend | None = None) -> None:
-        self._backend = backend if backend is not None else default_backend()
+        self._backends = [backend] if backend is not None else default_backends()
+        self._used: str | None = None
 
     @property
     def backend(self) -> str:
-        return self._backend.name
+        return self._used or self._backends[0].name
 
     @property
     def available(self) -> bool:
-        return self._backend.name != "unavailable"
+        return any(b.name != "unavailable" for b in self._backends)
 
     def copy(self, text: str) -> bool:
         """Copy ``text``. Empty input and backend errors return ``False``."""
         if not text or not text.strip():
             return False
-        try:
-            return bool(self._backend.copy(text))
-        except Exception:  # noqa: BLE001 - output failure must not crash the daemon
-            return False
+        for candidate in self._backends:
+            if candidate.name == "unavailable":
+                continue
+            try:
+                if candidate.copy(text):
+                    self._used = candidate.name
+                    return True
+            except Exception:  # noqa: BLE001 - output failure must not crash
+                continue
+        return False
 
     def clear(self) -> bool:
         """Empty the clipboard. Used by the optional auto-clear timer."""
-        try:
-            return bool(self._backend.copy(""))
-        except Exception:  # noqa: BLE001
-            return False
+        for candidate in self._backends:
+            if candidate.name == "unavailable":
+                continue
+            try:
+                if candidate.copy(""):
+                    return True
+            except Exception:  # noqa: BLE001
+                continue
+        return False
