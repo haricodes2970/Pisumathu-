@@ -74,5 +74,5 @@ def test_spec_is_hashable_and_frozen():
     spec = parse_hotkey("alt+space")
     assert isinstance(spec, HotkeySpec)
     assert hash(spec) == hash(parse_hotkey("alt+space"))
-    with pytest.raises(Exception):
+    with pytest.raises(AttributeError):
         spec.keys = frozenset()  # type: ignore[misc]

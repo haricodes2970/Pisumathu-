@@ -237,7 +237,7 @@ class ControlServer:
         while not self._stop.is_set():
             try:
                 connection, _ = self._socket.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 return

@@ -18,7 +18,8 @@ COPIED_HOLD_SECONDS = 1.2
 ERROR_HOLD_SECONDS = 3.0
 
 
-class AppState(str, Enum):
+# str+Enum rather than StrEnum keeps the 3.10 floor intact.
+class AppState(str, Enum):  # noqa: UP042
     LOADING = "loading"
     IDLE = "idle"
     RECORDING = "recording"

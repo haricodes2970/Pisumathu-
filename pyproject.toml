@@ -43,6 +43,8 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Historical documents quote old code verbatim; do not reformat those blocks.
+extend-exclude = ["CURRENT_STATE.md", "docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
