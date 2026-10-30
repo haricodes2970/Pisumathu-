@@ -20,9 +20,9 @@ from . import __version__, paths
 from .autostart import get_autostart
 from .config import load_config, save_config
 from .hotkey.parser import format_hotkey, parse_hotkey
-from .ipc import DaemonNotRunning, send
+from .ipc import DaemonLock, DaemonNotRunning, send
 
-DAEMON_START_TIMEOUT_SECONDS = 12.0
+DAEMON_START_TIMEOUT_SECONDS = 25.0
 GSETTINGS_SCHEMA = "org.gnome.desktop.wm.keybindings"
 GSETTINGS_KEY = "activate-window-menu"
 
@@ -230,8 +230,17 @@ def _cmd_start() -> int:
 
     _spawn_daemon()
     if not _wait_until_running():
-        print("pisumathu did not start. Check the log:", file=sys.stderr)
-        print(f"  {paths.log_path()}", file=sys.stderr)
+        # Distinguish "crashed on startup" from "still coming up".
+        probe = DaemonLock(paths.lock_path())
+        if probe.acquire():
+            probe.release()
+            print("pisumathu failed to start. Check the log:", file=sys.stderr)
+            print(f"  {paths.log_path()}", file=sys.stderr)
+            return EXIT_ERROR
+        print(
+            "pisumathu is starting but has not answered yet. Check with: talk status",
+            file=sys.stderr,
+        )
         return EXIT_ERROR
 
     print("pisumathu started in the background.")
