@@ -13,6 +13,7 @@ import secrets
 import socket
 import sys
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -43,8 +44,23 @@ class DaemonLock:
     def held(self) -> bool:
         return self._handle is not None
 
-    def acquire(self) -> bool:
-        """Try to take the lock. Returns ``False`` if another process holds it."""
+    def acquire(self, wait: float = 0.0) -> bool:
+        """Try to take the lock, retrying for ``wait`` seconds.
+
+        A freshly spawned daemon can lose the race against a predecessor that
+        is still tearing down, so a short wait avoids a spurious "already
+        running" exit.
+        """
+        deadline = time.monotonic() + wait
+        while True:
+            if self._try_acquire():
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+
+    def _try_acquire(self) -> bool:
+        """Take the lock once. Returns ``False`` if another process holds it."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         handle = open(self.path, "a+", encoding="utf-8")
         try:

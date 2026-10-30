@@ -412,7 +412,7 @@ def _valid_hotkey(text: str) -> bool:
 def main() -> int:
     """Start the daemon, or exit quietly if one is already running."""
     lock = DaemonLock(paths.lock_path())
-    if not lock.acquire():
+    if not lock.acquire(wait=5.0):
         print("pisumathu is already running", file=sys.stderr)
         return 0
 
