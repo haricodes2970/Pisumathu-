@@ -89,16 +89,20 @@ class ReplayRecorder(Recorder):
 
 
 def read_clipboard() -> str:
-    if shutil.which("wl-paste"):
-        result = subprocess.run(
-            ["wl-paste", "--no-newline"], capture_output=True, text=True, timeout=5
-        )
-        return result.stdout
-    if shutil.which("xsel"):
-        result = subprocess.run(
-            ["xsel", "--clipboard", "--output"], capture_output=True, text=True, timeout=5
-        )
-        return result.stdout
+    """Read the clipboard from whichever display-server path answers."""
+    commands = [
+        ["wl-paste", "--no-newline"],
+        ["xsel", "--clipboard", "--output"],
+    ]
+    for command in commands:
+        if not shutil.which(command[0]):
+            continue
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=3)
+        except subprocess.TimeoutExpired:
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout
     return ""
 
 

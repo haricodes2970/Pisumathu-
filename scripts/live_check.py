@@ -142,10 +142,11 @@ def make_speech(directory: Path) -> Path:
 
 
 def read_clipboard() -> str:
-    """Read the clipboard, treating "nothing owns the selection" as empty.
+    """Read the clipboard from whichever display-server path answers.
 
-    ``wl-paste`` blocks until something offers a selection, so a bare call
-    hangs forever when the clipboard is unowned.
+    ``wl-paste`` blocks until something offers a selection, so an unowned or
+    wedged Wayland clipboard hangs rather than returning empty. X11 is tried
+    too, because that is the path the app falls back to.
     """
     commands = [
         ["wl-paste", "--no-newline"],
@@ -155,9 +156,11 @@ def read_clipboard() -> str:
         if not shutil.which(command[0]):
             continue
         try:
-            return subprocess.run(command, capture_output=True, text=True, timeout=3).stdout
+            result = subprocess.run(command, capture_output=True, text=True, timeout=3)
         except subprocess.TimeoutExpired:
-            return ""
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout
     return ""
 
 
