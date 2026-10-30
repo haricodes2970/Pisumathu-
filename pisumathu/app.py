@@ -33,9 +33,7 @@ MAX_TRANSCRIPTS = 50
 
 
 def _configure_logging(verbose: bool) -> None:
-    handlers: list[logging.Handler] = [
-        logging.FileHandler(paths.log_path(), encoding="utf-8")
-    ]
+    handlers: list[logging.Handler] = [logging.FileHandler(paths.log_path(), encoding="utf-8")]
     if verbose:
         handlers.append(logging.StreamHandler())
     logging.basicConfig(
@@ -308,6 +306,7 @@ class Daemon:
             "model": self.config.model,
             "model_loaded": bool(self.engine and self.engine.is_loaded),
             "device": self.engine.resolved_device if self.engine else self.config.device,
+            "device_warning": self.engine.load_warning if self.engine else None,
             "hotkey": format_hotkey(parse_hotkey(self.config.hotkey))
             if _valid_hotkey(self.config.hotkey)
             else self.config.hotkey,

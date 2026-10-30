@@ -14,7 +14,6 @@ import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 from . import __version__, paths
 from .autostart import get_autostart
@@ -64,9 +63,7 @@ def _spawn_daemon() -> None:
         "close_fds": True,
     }
     if os.name == "nt":
-        kwargs["creationflags"] = (
-            subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-        )
+        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         kwargs["start_new_session"] = True
     try:
@@ -100,7 +97,7 @@ def _print_status(data: dict) -> None:
         f"clipboard      {data.get('clipboard')}",
         f"transcripts    {data.get('transcripts')}",
     ]
-    for key in ("hotkey_error", "audio_error", "last_error"):
+    for key in ("device_warning", "hotkey_error", "audio_error", "last_error"):
         value = data.get(key)
         if value:
             lines.append(f"{key:<14} {value}")
